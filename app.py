@@ -12,7 +12,7 @@ import FinanceDataReader as fdr
 # ==========================================
 # 1. 앱 기본 설정 & UI 스타일링
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V31", layout="wide")
+st.set_page_config(page_title="My Asset Hub V32", layout="wide")
 
 st.markdown("""
     <style>
@@ -31,7 +31,6 @@ SAVINGS_FILE = 'my_savings.csv'
 HISTORY_FILE = 'asset_history.csv'
 CONFIG_FILE = 'app_config.csv'
 
-# 에러 방지용 세션 초기화
 if 'edited_rebal_df' in st.session_state: del st.session_state['edited_rebal_df']
 st.session_state['rebal_applied'] = False
 
@@ -95,14 +94,12 @@ def get_exchange_rate():
 
 @st.cache_data(ttl=300)
 def get_price(ticker):
-    # 1. 가상화폐 (업비트)
     if ticker.startswith("KRW-"):
         try:
             url = f"https://api.upbit.com/v1/ticker?markets={ticker}"
             return requests.get(url).json()[0]['trade_price']
         except: return 0.0
     
-    # 2. 주식 (구글 파이낸스)
     clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
     df = load_market_data()
     
@@ -114,8 +111,9 @@ def get_price(ticker):
             if mkt in ['KRX', 'ETF/KR']: markets_to_try = [f"{clean_ticker}:KRX", f"{clean_ticker}:KOSDAQ"]
             elif mkt in ['NASDAQ', 'NYSE', 'AMEX']: markets_to_try = [f"{clean_ticker}:{mkt}"]
     
-    if not markets_to_try: # 못 찾았을 경우 대비 기본값
-        markets_to_try = [f"{clean_ticker}:KRX", f"{clean_ticker}:KOSDAQ", f"{clean_ticker}:NASDAQ", f"{clean_ticker}:NYSE"]
+    # [핵심 수정] ETF 등 검색 안될 시 NYSEARCA, AMEX 등 전방위로 찔러보기
+    if not markets_to_try:
+        markets_to_try = [f"{clean_ticker}:KRX", f"{clean_ticker}:NASDAQ", f"{clean_ticker}:NYSE", f"{clean_ticker}:NYSEARCA", f"{clean_ticker}:AMEX"]
         
     for gf_ticker in markets_to_try:
         try:
@@ -135,7 +133,6 @@ exchange_rate = get_exchange_rate()
 # ==========================================
 st.sidebar.title("🛠️ 컨트롤러")
 
-# [복구 완료] 구글 기준 실시간 환율
 st.sidebar.metric("💵 실시간 환율 (구글 기준)", f"{exchange_rate:,.2f} 원")
 
 with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
@@ -149,19 +146,23 @@ with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
         except: st.error("숫자만 입력!")
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, AAPL, 비트코인")
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, SCHD, 리플")
 st.sidebar.markdown("[👉 구글 파이낸스 주식 검색](https://www.google.com/finance/?hl=ko)", unsafe_allow_html=True)
 
-# [핵심] 완벽한 드롭다운 검색 로직
 if asset_input:
     options = []
     
-    # 1. 가상화폐 체크
-    coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
+    # 1. 가상화폐 체크 (리플, 솔라나, 도지 추가)
+    coin_map = {
+        "비트코인": "KRW-BTC", "BTC": "KRW-BTC", 
+        "이더리움": "KRW-ETH", "ETH": "KRW-ETH",
+        "리플": "KRW-XRP", "XRP": "KRW-XRP",
+        "솔라나": "KRW-SOL", "SOL": "KRW-SOL",
+        "도지코인": "KRW-DOGE", "DOGE": "KRW-DOGE"
+    }
     for k, v in coin_map.items():
         if k in asset_input.upper() or asset_input.upper() in k:
             options.append(f"[가상화폐] {k} ({v})")
-            break
             
     # 2. 내장 DB (fdr) 검색
     df_market = load_market_data()
@@ -171,10 +172,17 @@ if asset_input:
         for _, r in res.iterrows():
             options.append(f"[{r['시장']}] {r['Name']} ({r['Code']})")
             
+    # 3. [핵심 수정] DB에 없는 영문 티커(SCHD 등)를 위한 직접 입력 강제 활성화
+    if re.match(r"^[A-Za-z0-9]+$", asset_input.strip()):
+        upper_val = asset_input.strip().upper()
+        options.append(f"[미국/해외 직접입력] {upper_val} ({upper_val})")
+        
+    # 중복 제거
+    options = list(dict.fromkeys(options))
+            
     if options:
         selected_str = st.sidebar.selectbox("💡 정확한 종목을 선택하세요", options)
         
-        # 선택한 문자열에서 파싱 (예: "[KRX] 삼성전자 (005930)")
         match = re.match(r"\[(.*?)\] (.*) \((.*?)\)", selected_str)
         if match:
             sel_market = match.group(1)
@@ -182,13 +190,13 @@ if asset_input:
             sel_code = match.group(3)
             
             is_crypto = (sel_market == '가상화폐')
-            is_foreign = sel_market in ['NASDAQ', 'NYSE', 'AMEX']
+            is_foreign = sel_market in ['NASDAQ', 'NYSE', 'AMEX', '미국/해외 직접입력']
             
             existing_idx = next((i for i, s in enumerate(st.session_state['stocks']) if s.get('티커') == sel_code), None)
             btn_label = "➕ 물타기/불타기 합산" if existing_idx is not None else "투자 자산 저장"
             
             currency_label = "원 ₩" if (is_crypto or not is_foreign) else "달러 $"
-            new_price = st.sidebar.number_input(f"매수 단가 ({currency_label})", min_value=0.0, step=100.0, format="%.2f")
+            new_price = st.sidebar.number_input(f"매수 단가 ({currency_label})", min_value=0.0, step=10.0, format="%.2f")
             new_qty = st.sidebar.number_input("보유 수량", min_value=0.0, step=0.01)
             risk_level = st.sidebar.selectbox("리스크 분류", ["초고위험 (코인/레버리지)", "위험 (개별주식)", "중립 (지수ETF)", "안전 (금/국채)"])
             
@@ -205,7 +213,7 @@ if asset_input:
                 sort_assets()
                 st.rerun()
     else:
-        st.sidebar.warning("⚠️ 검색 결과가 없습니다. 띄어쓰기나 철자를 확인해 주세요.")
+        st.sidebar.warning("⚠️ 검색 결과가 없습니다. 미국 주식은 영어 티커(예: SCHD)로 입력해 주세요.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
@@ -246,7 +254,7 @@ for idx, stock in enumerate(st.session_state['stocks']):
     else:
         curr_krw = curr * exchange_rate if is_foreign else curr
         buy_amt = buy_p * qty * (exchange_rate if is_foreign else 1)
-        curr = curr_krw # 평가금액 계산을 위해 원화로 통일
+        curr = curr_krw 
         
     eval_amt = curr * qty
     total_buy += buy_amt
@@ -316,7 +324,7 @@ c3.metric("수익금", f"{grand_total-total_buy:,.0f}원", f"{(grand_total-total
 
 st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리 (자동 정렬)", "⚖️ 리밸런싱 (3-Step)"])
+tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱 (3-Step)"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
@@ -456,7 +464,8 @@ with tab3:
         
         st.subheader("🔬 2단계: 종목별 세부 조율")
         
-        r_map = {"초고위험": "1. 초고위험", "위험": "2. 위험", "중립": "3. 중립", "안전": "4. 안전(유동)"}
+        # [핵심] 글자 자체에 이모지 박아넣어 색상 버그 무시 + 시각적 효과 극대화
+        r_map = {"초고위험": "🔴 1. 초고위험", "위험": "🟠 2. 위험", "중립": "🔵 3. 중립", "안전": "🟢 4. 안전(유동)"}
         re_items = []
         for s in stock_display:
             re_items.append({
@@ -469,7 +478,7 @@ with tab3:
             })
         for sv in st.session_state['savings']:
             b_type = sv.get('종류', '적금')
-            grp = "5. 안전(고정)" if b_type in ["적금", "주택청약"] else "4. 안전(유동)"
+            grp = "⚪ 5. 안전(고정)" if b_type in ["적금", "주택청약"] else "🟢 4. 안전(유동)"
             re_items.append({
                 "자산군": grp, 
                 "종목명": f"[{b_type}] {sv.get('상품명', '은행')}", 
@@ -480,7 +489,7 @@ with tab3:
             })
             
         existing_groups = set(item['자산군'] for item in re_items)
-        for grp in ["1. 초고위험", "2. 위험", "3. 중립", "4. 안전(유동)"]:
+        for grp in ["🔴 1. 초고위험", "🟠 2. 위험", "🔵 3. 중립", "🟢 4. 안전(유동)"]:
             if grp not in existing_groups:
                 re_items.append({
                     "자산군": grp, 
@@ -492,16 +501,13 @@ with tab3:
                 })
         
         rdf = pd.DataFrame(re_items)
-        target_map = {"1. 초고위험": t1, "2. 위험": t2, "3. 중립": t3, "4. 안전(유동)": t4, "5. 안전(고정)": t5}
+        target_map = {"🔴 1. 초고위험": t1, "🟠 2. 위험": t2, "🔵 3. 중립": t3, "🟢 4. 안전(유동)": t4, "⚪ 5. 안전(고정)": t5}
         
-        # [완벽 복구] 매트릭스 스타일링 기법으로 2단계 전체 행 컬러링
-        def highlight_matrix(df):
-            colors = {'1. 초고위험': '#FFCDD2', '2. 위험': '#FFE0B2', '3. 중립': '#BBDEFB', '4. 안전(유동)': '#C8E6C9', '5. 안전(고정)': '#F5F5F5'}
-            style_df = pd.DataFrame('', index=df.index, columns=df.columns)
-            for i, row in df.iterrows():
-                color = colors.get(row['자산군'], '')
-                style_df.iloc[i] = f'background-color: {color}'
-            return style_df
+        # [핵심] 행 단위 색상 칠하기 적용
+        def highlight_row(row):
+            colors = {'🔴 1. 초고위험': '#FFCDD2', '🟠 2. 위험': '#FFE0B2', '🔵 3. 중립': '#BBDEFB', '🟢 4. 안전(유동)': '#C8E6C9', '⚪ 5. 안전(고정)': '#F5F5F5'}
+            color = colors.get(row['자산군'], '')
+            return [f'background-color: {color}'] * len(row)
 
         if not rdf.empty:
             rdf.sort_values(by=['자산군', '현재금액_raw'], ascending=[True, False], inplace=True)
@@ -517,7 +523,7 @@ with tab3:
             default_targets = []
             for idx, row in rdf.iterrows():
                 grp = row['자산군']
-                if grp == "5. 안전(고정)": default_targets.append(round(row['현재금액_raw']/grand_total*100, 1) if grand_total>0 else 0)
+                if grp == "⚪ 5. 안전(고정)": default_targets.append(round(row['현재금액_raw']/grand_total*100, 1) if grand_total>0 else 0)
                 else:
                     grp_tgt = target_map.get(grp, 0)
                     grp_sum = rdf[rdf['자산군'] == grp]['현재금액_raw'].sum()
@@ -526,8 +532,8 @@ with tab3:
             rdf['💡 목표(%)'] = default_targets
             
             display_cols = ['자산군', '종목명', '현재 금액(수익률)', '💡 목표(%)']
-            try: styled_rdf = rdf[display_cols].style.apply(highlight_matrix, axis=None)
-            except: styled_rdf = rdf[display_cols].style.apply(highlight_matrix, axis=None)
+            try: styled_rdf = rdf[display_cols].style.apply(highlight_row, axis=1)
+            except: styled_rdf = rdf[display_cols].style.apply(highlight_row, axis=1)
 
             edited = st.data_editor(styled_rdf, use_container_width=True, hide_index=True,
                                    column_config={"💡 목표(%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=0.1)})
@@ -535,7 +541,7 @@ with tab3:
             is_step2_valid = True
             validation_msgs = []
             for grp, grp_tgt in target_map.items():
-                if grp == "5. 안전(고정)": continue
+                if grp == "⚪ 5. 안전(고정)": continue
                 grp_sum = edited[edited['자산군'] == grp]['💡 목표(%)'].sum()
                 diff = round(grp_tgt - grp_sum, 1)
                 if abs(diff) > 0.1: 
@@ -567,7 +573,7 @@ with tab3:
                 final_edited['차액'] = final_edited['목표금액'] - final_edited['현재금액_raw']
                 
                 def get_action(row):
-                    if row['자산군'] == "5. 안전(고정)": return "🔒 유지", "-"
+                    if row['자산군'] == "⚪ 5. 안전(고정)": return "🔒 유지", "-"
                     d = row['차액']
                     p = row['현재가']
                     c = row['티커'].startswith("KRW-")
@@ -584,6 +590,6 @@ with tab3:
                 final_edited.rename(columns={'현재금액_raw': '현재금액(원)'}, inplace=True)
                 display_df = final_edited[['자산군', '종목명', '현재금액(원)', '목표금액', '액션', '수량가이드']]
                 
-                try: f_style = display_df.style.apply(highlight_matrix, axis=None).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
-                except: f_style = display_df.style.apply(highlight_matrix, axis=None).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
+                try: f_style = display_df.style.apply(highlight_row, axis=1).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
+                except: f_style = display_df.style.apply(highlight_row, axis=1).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
                 st.dataframe(f_style, hide_index=True, use_container_width=True)
