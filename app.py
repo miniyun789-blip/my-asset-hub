@@ -2,36 +2,66 @@ import streamlit as st
 import pandas as pd
 import FinanceDataReader as fdr
 
-st.title("🔍 국장 검색 엔진 생존 테스트 (수정본)")
-st.write("클라우드 방화벽을 뚫고 한글 종목명을 찾아오는지 검증합니다.")
+st.title("🔍 통합 검색 엔진 생존 테스트 (국장 + ETF + 미장)")
+st.write("클라우드 방화벽을 뚫고 내장 DB에서 종목을 찾아옵니다.")
 
-# 한국거래소(KRX) 전체 종목 리스트를 공식적으로 다운로드 (하루 1번만 캐싱)
+# 전 세계 시장 데이터를 한 번에 다운로드 (하루 1번 캐싱)
 @st.cache_data(ttl=86400)
-def load_krx_data():
+def load_market_data():
+    dfs = []
+    
+    # 1. 한국 주식 (KRX)
     try:
-        # fdr.StockListing('KRX')는 한국 주식 전체 데이터를 빠르고 안전하게 가져옵니다.
-        df = fdr.StockListing('KRX')
-        return df[['Code', 'Name']]
-    except Exception as e:
-        return str(e)
+        df_krx = fdr.StockListing('KRX')
+        df_krx = df_krx.rename(columns={'Code': '티커', 'Name': '종목명'})
+        df_krx['시장'] = '한국주식(KRX)'
+        dfs.append(df_krx[['티커', '종목명', '시장']])
+    except: pass
+    
+    # 2. 한국 ETF (ETF/KR)
+    try:
+        df_etf = fdr.StockListing('ETF/KR')
+        df_etf = df_etf.rename(columns={'Symbol': '티커', 'Name': '종목명'})
+        df_etf['시장'] = '한국ETF'
+        dfs.append(df_etf[['티커', '종목명', '시장']])
+    except: pass
 
-# 테스트 입력창
-query = st.text_input("검색할 한글 종목명 (예: 삼성전자, 카카오, SK하이닉스)", "삼성전자")
-
-if st.button("🚀 테스트 시작"):
-    with st.spinner("한국거래소 공식 데이터 뒤지는 중..."):
-        df = load_krx_data()
+    # 3. 미국 주식 (NASDAQ, NYSE, AMEX)
+    for market in ['NASDAQ', 'NYSE', 'AMEX']:
+        try:
+            df_us = fdr.StockListing(market)
+            df_us = df_us.rename(columns={'Symbol': '티커', 'Name': '종목명'})
+            df_us['시장'] = f'미국주식({market})'
+            dfs.append(df_us[['티커', '종목명', '시장']])
+        except: pass
         
-        if isinstance(df, pd.DataFrame):
-            # 입력한 이름과 정확히 일치하는 데이터 찾기
-            result = df[df['Name'] == query]
+    if dfs:
+        total_df = pd.concat(dfs, ignore_index=True)
+        # 검색 에러 방지를 위해 문자로 변환
+        total_df['종목명'] = total_df['종목명'].astype(str)
+        total_df['티커'] = total_df['티커'].astype(str)
+        return total_df
+    else:
+        return "데이터 로드 실패"
+
+df = load_market_data()
+
+if isinstance(df, pd.DataFrame):
+    st.success(f"✅ 전체 시장 데이터 로드 완료! (총 {len(df):,}개 종목 탑재)")
+    
+    query = st.text_input("검색어 (종목명 일부 또는 티커 입력)", "TIGER 미국")
+    
+    if st.button("🚀 검색 시작"):
+        with st.spinner("방대한 DB에서 검색 중..."):
+            # 대소문자 구분 없이, 검색어가 종목명이나 티커에 포함된 결과 찾기 (부분 일치)
+            mask = df['종목명'].str.contains(query, case=False, na=False) | df['티커'].str.contains(query, case=False, na=False)
+            result = df[mask]
             
             if not result.empty:
-                code = result.iloc[0]['Code']
-                st.success(f"✅ 검색 대성공! '{query}'의 티커는 '{code}' 입니다.")
-                st.info(f"구글 파이낸스 변환: {code}:KRX")
-                st.info(f"야후 파이낸스 변환: {code}.KS")
+                st.success(f"🎉 총 {len(result)}개의 결과를 찾았습니다! (상위 10개 표시)")
+                st.dataframe(result.head(10))
             else:
-                st.warning(f"❌ '{query}' 종목을 한국거래소 공식 명단에서 찾을 수 없습니다. 띄어쓰기를 확인해 주세요.")
-        else:
-            st.error(f"❌ 라이브러리 로드 실패 (에러 내용: {df})")
+                st.warning(f"❌ '{query}'에 대한 검색 결과가 없습니다.")
+                st.info("💡 미국 주식은 영어 이름(예: Apple)이나 티커(예: AAPL)로 검색해 보세요.")
+else:
+    st.error(df)
