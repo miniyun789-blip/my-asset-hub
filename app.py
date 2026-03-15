@@ -11,14 +11,14 @@ import FinanceDataReader as fdr
 import json
 
 # ==========================================
-# [중요] 구글 앱스 스크립트 웹 앱 URL 설정
+# [중요] 대표님의 구글 앱스 스크립트 웹 앱 URL (그대로 유지)
 # ==========================================
 API_URL = "https://script.google.com/macros/s/AKfycbyCXNo6L5fBUD1ysDXGfGsSaEAVEZGXgqRBiL_U8vqyLhwJJN4ELeBa68ZNB6XSDWMI/exec"
 
 # ==========================================
 # 1. 앱 기본 설정 & UI 스타일링
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V35", layout="wide")
+st.set_page_config(page_title="My Asset Hub V36", layout="wide")
 
 st.markdown("""
     <style>
@@ -26,6 +26,7 @@ st.markdown("""
     p, .stMarkdown, div[data-testid="stText"] { font-size: 1.1rem !important; }
     .stMetric label { font-size: 1rem !important; }
     .stMetric value { font-size: 1.8rem !important; }
+    .stDataFrame { font-size: 1rem !important; }
     .goal-red { color: #E74C3C; font-weight: 900; font-size: 1.4rem; }
     .goal-green { color: #2ECC71; font-weight: 900; font-size: 1.4rem; }
     .green-text { color: #2ECC71; font-size: 0.95em; margin-bottom: 10px; font-weight: 500; }
@@ -33,7 +34,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 클라우드 데이터 동기화 엔진 (Sync Engine)
+# 2. 클라우드 데이터 동기화 엔진 (KeyError 방어형)
 # ==========================================
 def load_cloud_data(sheet_name):
     try:
@@ -58,19 +59,17 @@ if 'config' not in st.session_state:
 active_risks = [r.strip() for r in st.session_state['config'].get('risk_levels', "초고위험,위험,중립,안전").split(',') if r.strip()]
 
 def sort_and_save():
-    # 리스크 순서 정렬 가중치 부여
     def get_risk_weight(r):
         try: return active_risks.index(r)
         except: return 99
-    
-    # 정렬: 1순위 리스크 등급, 2순위 평가액(평단가*수량) 큰 순
+    # 정렬: 리스크 등급 순 -> 평가액 큰 순
     st.session_state['stocks'].sort(key=lambda x: (get_risk_weight(x.get('리스크')), -(float(x.get('매수평단가', 0)) * float(x.get('보유수량', 0)))))
     save_cloud_data(st.session_state['stocks'], 'stocks')
     save_cloud_data(st.session_state['savings'], 'savings')
     save_cloud_data([st.session_state['config']], 'config')
 
 # ==========================================
-# 3. 시간(KST 03:00 기준) 및 수집 엔진
+# 3. 데이터 수집 엔진 (구글 파이낸스 & KRX)
 # ==========================================
 kst_now = datetime.utcnow() + timedelta(hours=9)
 logic_date_str = (kst_now - timedelta(days=1)).strftime('%Y-%m-%d') if kst_now.hour < 3 else kst_now.strftime('%Y-%m-%d')
@@ -100,44 +99,48 @@ def get_price(ticker):
         try: return requests.get(f"https://api.upbit.com/v1/ticker?markets={ticker}").json()[0]['trade_price']
         except: return 0.0
     clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
+    # SCHD 등 미국 ETF 대응을 위해 NYSEARCA 거래소 추가
     markets = [f"{clean_ticker}:KRX", f"{clean_ticker}:KOSDAQ", f"{clean_ticker}:NASDAQ", f"{clean_ticker}:NYSE", f"{clean_ticker}:NYSEARCA"]
     for gf_ticker in markets:
         try:
             res = requests.get(f"https://www.google.com/finance/quote/{gf_ticker}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
             if 'YMlKec fxKbKc' in res.text:
                 soup = BeautifulSoup(res.text, 'html.parser')
-                return float(soup.select_one('.YMlKec.fxKbKc').text.replace('₩', '').replace('$', '').replace(',', ''))
+                price_str = soup.select_one('.YMlKec.fxKbKc').text
+                return float(price_str.replace('₩', '').replace('$', '').replace(',', ''))
         except: pass
     return 0.0
 
 exchange_rate = get_exchange_rate()
 
 # ==========================================
-# 4. 사이드바 (컨트롤러)
+# 4. 사이드바 컨트롤러
 # ==========================================
 st.sidebar.title("🛠️ 컨트롤러")
 st.sidebar.metric("💵 실시간 환율 (구글 기준)", f"{exchange_rate:,.2f} 원")
 
 with st.sidebar.expander("⚙️ 시스템 및 목표 설정"):
     current_tgt = int(st.session_state['config'].get('target_asset', 1000000000))
-    new_target_str = st.text_input("목표 금액 (원)", value=f"{current_tgt:,}")
+    new_tgt_str = st.text_input("목표 금액 (원)", value=f"{current_tgt:,}")
     if st.button("목표 저장"):
-        st.session_state['config']['target_asset'] = int(new_target_str.replace(",", ""))
+        st.session_state['config']['target_asset'] = int(new_tgt_str.replace(",", ""))
         sort_and_save(); st.rerun()
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, SCHD")
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, SCHD, 리플")
+
 if asset_input:
     options = []
-    coin_map = {"비트코인": "KRW-BTC", "이더리움": "KRW-ETH", "리플": "KRW-XRP", "솔라나": "KRW-SOL"}
+    coin_map = {"비트코인": "KRW-BTC", "이더리움": "KRW-ETH", "리플": "KRW-XRP", "솔라나": "KRW-SOL", "도지코인": "KRW-DOGE"}
     for k, v in coin_map.items():
         if k in asset_input: options.append(f"[가상화폐] {k} ({v})")
     df_m = load_market_data()
     if df_m is not None:
         mask = df_m['Name'].str.contains(asset_input, case=False, na=False) | df_m['Code'].str.contains(asset_input, case=False, na=False)
         for _, r in df_m[mask].head(20).iterrows(): options.append(f"[{r['시장']}] {r['Name']} ({r['Code']})")
+    # 미국 ETF(SCHD 등) 직접 입력 대응
     if re.match(r"^[A-Za-z0-9]+$", asset_input.strip()):
-        options.append(f"[미국/해외 직접입력] {asset_input.upper()} ({asset_input.upper()})")
+        options.append(f"[해외 직접입력] {asset_input.upper()} ({asset_input.upper()})")
     
     options = list(dict.fromkeys(options))
     if options:
@@ -145,9 +148,12 @@ if asset_input:
         m = re.match(r"\[(.*?)\] (.*) \((.*?)\)", selected)
         if m:
             sel_market, sel_name, sel_code = m.group(1), m.group(2), m.group(3)
-            curr_label = "원 ₩" if (sel_market == '가상화폐' or sel_market in ['KRX', 'ETF/KR']) else "달러 $"
+            is_foreign = (sel_market in ['NASDAQ', 'NYSE', 'AMEX', '해외 직접입력'])
+            curr_label = "달러 $" if is_foreign else "원 ₩"
+            
             raw_p = st.sidebar.text_input(f"매수 단가 ({curr_label})", value="0")
-            new_p = float(raw_p.replace(',', '')) if raw_p.replace(',', '').replace('.','').isdigit() else 0.0
+            try: new_p = float(raw_p.replace(',', ''))
+            except: new_p = 0.0
             new_q = st.sidebar.number_input("보유 수량", min_value=0.0, step=0.01)
             risk_lv = st.sidebar.selectbox("리스크 분류 선택", active_risks)
             
@@ -155,11 +161,11 @@ if asset_input:
                 existing = next((i for i, s in enumerate(st.session_state['stocks']) if s.get('티커') == sel_code), None)
                 if existing is not None:
                     old = st.session_state['stocks'][existing]
-                    final_q = old.get('보유수량', 0) + new_qty
-                    final_p = ((old.get('매수평단가', 0) * old.get('보유수량', 0)) + (new_p * new_q)) / final_q if final_q > 0 else 0
+                    final_q = float(old.get('보유수량', 0)) + new_q
+                    final_p = ((float(old.get('매수평단가', 0)) * float(old.get('보유수량', 0))) + (new_p * new_q)) / final_q if final_q > 0 else 0
                     st.session_state['stocks'][existing].update({'매수평단가': final_p, '보유수량': final_q})
                 else:
-                    st.session_state['stocks'].append({"종목명": sel_name, "티커": sel_code, "매수평단가": new_p, "보유수량": new_q, "해외여부": (curr_label == "달러 $"), "리스크": risk_lv})
+                    st.session_state['stocks'].append({"종목명": sel_name, "티커": sel_code, "매수평단가": new_p, "보유수량": new_q, "해외여부": is_foreign, "리스크": risk_lv})
                 sort_and_save(); st.rerun()
 
 with st.sidebar.expander("⚙️ 리스크 분류 추가/수정"):
@@ -181,16 +187,20 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         sort_and_save(); st.rerun()
 
 # ==========================================
-# 5. 메인 로직 & 대시보드
+# 5. 메인 대시보드 연산
 # ==========================================
-st.title("💰 My Asset Hub V35")
+st.title("💰 My Asset Hub V36")
 
 risk_group = {r: 0 for r in active_risks}; risk_group["고정(은행)"] = 0
 port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0} 
 stock_disp = []; total_buy = 0 
 
 for idx, s in enumerate(st.session_state['stocks']):
-    ticker, is_foreign, buy_p, qty = s.get('티커'), s.get('해외여부'), float(s.get('매수평단가', 0)), float(s.get('보유수량', 0))
+    ticker = s.get('티커', '')
+    is_foreign = s.get('해외여부', False)
+    buy_p = float(s.get('매수평단가', 0))
+    qty = float(s.get('보유수량', 0))
+    
     curr = get_price(ticker)
     curr_krw = curr * exchange_rate if is_foreign else curr
     buy_amt = buy_p * qty * (exchange_rate if is_foreign else 1)
@@ -209,15 +219,20 @@ for idx, s in enumerate(st.session_state['stocks']):
 
 total_sav_val = 0; total_bank_principal = 0; fixed_sav_val = 0
 for sav in st.session_state['savings']:
-    amt = int(sav.get('월납입액', 0)) * int(sav.get('현재회차', 1))
+    # [방어 로직] .get()과 기본값 0 사용
+    m_val = int(sav.get('월납입액', 0))
+    c_val = int(sav.get('현재회차', 0))
+    t_val = int(sav.get('총회차', 1))
+    
+    amt = m_val * c_val
     total_sav_val += amt; total_buy += amt
-    total_bank_principal += (int(sav.get('월납입액', 0)) * int(sav.get('총회차', 1)))
+    total_bank_principal += (m_val * t_val)
     if sav.get('종류') in ["적금", "주택청약"]: fixed_sav_val += amt
 risk_group["고정(은행)"] += total_sav_val
 
 grand_total = sum(port_group.values()) + total_sav_val
 
-# 히스토리 저장 (구글 시트 연동)
+# 히스토리 저장
 history_data = load_cloud_data('history')
 history_df = pd.DataFrame(history_data) if history_data else pd.DataFrame(columns=["날짜", "총자산"])
 if grand_total > 0:
@@ -227,7 +242,7 @@ if grand_total > 0:
         history_df = pd.concat([history_df, pd.DataFrame([{"날짜": logic_date_str, "총자산": grand_total}])], ignore_index=True)
     save_cloud_data(history_df.to_dict('records'), 'history')
 
-# 대시보드 UI
+# 대시보드 상단
 target = st.session_state['config'].get('target_asset', 1000000000)
 achieved = (grand_total / target * 100) if target > 0 else 0
 if achieved < 100: st.markdown(f"### 🏆 목표 ({target:,.0f}원) | <span class='goal-red'>{100-achieved:.1f}% 남음 🔥</span>", unsafe_allow_html=True)
@@ -240,24 +255,24 @@ c2.metric("매수 원금", f"{total_buy:,.0f}원")
 c3.metric("수익금", f"{grand_total-total_buy:,.0f}원", f"{(grand_total-total_buy)/total_buy*100:.1f}%" if total_buy>0 else "0%")
 
 st.markdown("---")
-tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱"])
+tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱 (3-Step)"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         fig1 = go.Figure(data=[go.Pie(labels=["가상화폐", "해외 주식", "국내 주식", "은행(안전)"], values=[port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val], hole=.4, sort=False)])
-        fig1.update_layout(title="포트폴리오 비중", margin=dict(l=10, r=10, t=30, b=10), height=300)
+        fig1.update_layout(title="포트폴리오 비중", height=300, margin=dict(t=30, b=10))
         st.plotly_chart(fig1, use_container_width=True)
     with col_p2:
         colors = ['#E74C3C', '#F39C12', '#3498DB', '#2ECC71', '#9B59B6', '#1ABC9C', '#34495E']
         fig2 = go.Figure(data=[go.Pie(labels=list(risk_group.keys()), values=list(risk_group.values()), hole=.4, marker_colors=colors)])
-        fig2.update_layout(title="리스크 다각화", margin=dict(l=10, r=10, t=30, b=10), height=300)
+        fig2.update_layout(title="리스크 다각화", height=300, margin=dict(t=30, b=10))
         st.plotly_chart(fig2, use_container_width=True)
     
     if not history_df.empty:
-        st.subheader("🚀 자산 성장 타임라인")
+        st.subheader("🚀 자산 성장 타임라인 (03:00 KST)")
         fig_line = px.area(history_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
-        fig_line.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10))
+        fig_line.update_layout(height=300, margin=dict(t=10, b=10))
         st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
 
 with tab2:
@@ -276,17 +291,24 @@ with tab2:
             new_p = st.number_input("평단가 수정", value=float(s['매수평단가']), key=f"np_{s['ID']}")
             new_q = st.number_input("수량 수정", value=float(s['보유수량']), key=f"nq_{s['ID']}")
             if st.button("저장", key=f"sv_{s['ID']}"):
-                st.session_state['stocks'][s['ID']].update({'매수평단가': new_p, '보유수량': new_q})
-                sort_and_save(); st.rerun()
+                st.session_state['stocks'][s['ID']].update({'매수평단가': new_p, '보유수량': new_q}); sort_and_save(); st.rerun()
     
     st.divider()
     st.subheader(f"🏦 은행 자산 내역 (총 원금: {total_bank_principal:,.0f}원)")
     for i, sav in enumerate(st.session_state['savings']):
         c_i, c_e, c_d = st.columns([6, 0.7, 0.7])
         with c_i:
-            st.markdown(f"**[{sav['종류']}] {sav['상품명']}** (연 {sav['이율']}%) | 원금: {int(sav['월납입액'])*int(sav['총회차']):,.0f}원")
-            prog = min(1.0, int(sav['현재회차'])/int(sav['총회차']))
-            st.markdown(f"<div class='green-text'>↳ {sav['현재회차']}/{sav['총회차']}개월 진행 중</div>", unsafe_allow_html=True)
+            # [에러 해결] .get() 사용
+            s_type = sav.get('종류', '정보없음')
+            s_name = sav.get('상품명', '이름없음')
+            s_rate = sav.get('이율', 0)
+            m_val = int(sav.get('월납입액', 0))
+            c_val = int(sav.get('현재회차', 0))
+            t_val = int(sav.get('총회차', 1))
+            
+            st.markdown(f"**[{s_type}] {s_name}** (연 {s_rate}%) | 원금: {m_val * t_val:,.0f}원")
+            prog = min(1.0, c_val / t_val) if t_val > 0 else 0
+            st.markdown(f"<div class='green-text'>↳ {c_val}/{t_val}개월 진행 중</div>", unsafe_allow_html=True)
             st.progress(prog)
         with c_e:
             if st.button("✏️", key=f"eb_{i}"): st.session_state[f"ebm_{i}"] = not st.session_state.get(f"ebm_{i}", False)
@@ -301,22 +323,62 @@ with tab3:
     for i, r in enumerate(active_risks): tgt_w[r] = cols[i].number_input(f"{r}", value=0.0, step=1.0)
     cols[-1].number_input("고정(은행)", value=float(fixed_p), disabled=True)
     
-    if abs(sum(tgt_w.values()) + fixed_p - 100.0) < 0.1:
-        st.success("✅ 100% 일치. 2단계 활성화")
+    total_input = round(sum(tgt_w.values()) + fixed_p, 1)
+    if abs(total_input - 100.0) < 0.2:
+        st.success(f"✅ 100% 일치 (현재 {total_input}%)")
         st.divider()
         st.subheader("🔬 2단계: 세부 조율")
-        # 리밸런싱 로직 (기존과 동일하되 세션 데이터 사용)
-        re_items = []
-        for s in stock_disp: re_items.append({"자산군": s['리스크'], "종목명": s['종목명'], "현재금액": int(s['평가']), "수익률": s['수익률'], "티커": s['티커'], "현재가": s['현재가']})
-        for sv in st.session_state['savings']:
-            grp = "고정(은행)" if sv['종류'] in ["적금", "주택청약"] else active_risks[-1]
-            re_items.append({"자산군": grp, "종목명": sv['상품명'], "현재금액": int(sv['월납입액'])*int(sv['현재회차']), "수익률": 0.0, "티커": "SAV", "현재가": 0})
         
+        re_items = []
+        for s in stock_disp:
+            re_items.append({"자산군": s['리스크'], "종목명": s['종목명'], "현재금액": int(s['평가']), "수익률": s['수익률'], "티커": s['티커'], "현재가": s['현재가']})
+        for sv in st.session_state['savings']:
+            grp = "고정(은행)" if sv.get('종류') in ["적금", "주택청약"] else active_risks[-1]
+            re_items.append({"자산군": grp, "종목명": sv.get('상품명'), "현재금액": int(sv.get('월납입액',0))*int(sv.get('현재회차',0)), "수익률": 0.0, "티커": "SAV", "현재가": 0})
+        
+        # 없는 자산군도 리밸런싱에 표시
+        existing_groups = set(x['자산군'] for x in re_items)
+        for g in active_risks:
+            if g not in existing_groups:
+                re_items.append({"자산군": g, "종목명": "💡 신규 자산 배분 필요", "현재금액": 0, "수익률": 0.0, "티커": "NEW", "현재가": 0})
+
         rdf = pd.DataFrame(re_items)
+        # 리밸런싱 표 색상 입히기 (매트릭스 방식)
+        def style_rebal(df):
+            colors = {'#FFCDD2','#FFE0B2','#BBDEFB','#C8E6C9','#E1BEE7','#D7CCC8'}
+            c_list = list(colors)
+            style_df = pd.DataFrame('', index=df.index, columns=df.columns)
+            for i, row in df.iterrows():
+                try: idx = active_risks.index(row['자산군'])
+                except: idx = -1
+                color = c_list[idx % len(c_list)] if idx != -1 else '#F5F5F5'
+                style_df.iloc[i] = f'background-color: {color}'
+            return style_df
+
         if not rdf.empty:
             rdf['💡 목표(%)'] = rdf.apply(lambda x: round((x['현재금액']/grand_total*100),1), axis=1)
-            edited = st.data_editor(rdf[['자산군', '종목명', '현재금액', '💡 목표(%)']], use_container_width=True, hide_index=True)
+            styled_rdf = rdf[['자산군', '종목명', '현재금액', '💡 목표(%)']].style.apply(style_rebal, axis=None)
+            edited = st.data_editor(styled_rdf, use_container_width=True, hide_index=True)
+            
             if st.button("🚀 3단계: 액션 플랜 생성"):
-                st.info("여기에 최종 매수/매도 가이드가 표시됩니다.")
+                st.session_state['rebal_df'] = rdf.copy()
+                st.session_state['rebal_df']['💡 목표(%)'] = edited['💡 목표(%)'].values
+                st.session_state['rebal_go'] = True
+            
+            if st.session_state.get('rebal_go'):
+                st.divider(); st.subheader("🎯 3단계: 액션 플랜")
+                rdf_final = st.session_state['rebal_df']
+                rdf_final['목표금액'] = (grand_total * (rdf_final['💡 목표(%)'] / 100)).astype(int)
+                rdf_final['차액'] = rdf_final['목표금액'] - rdf_final['현재금액']
+                
+                def get_act(row):
+                    if row['자산군'] == "고정(은행)": return "🔒 유지", "-"
+                    d = row['차액']
+                    if d > 10000: return f"🟢 매수 (+{d:,.0f}원)", f"약 {d/row['현재가']:.2f}주" if row['현재가']>0 else "-"
+                    if d < -10000: return f"🔴 매도 ({abs(d):,.0f}원)", f"약 {abs(d)/row['현재가']:.2f}주" if row['현재가']>0 else "-"
+                    return "유지", "-"
+                
+                rdf_final[['액션', '가이드']] = rdf_final.apply(get_act, axis=1, result_type='expand')
+                st.dataframe(rdf_final[['자산군', '종목명', '현재금액', '목표금액', '액션', '가이드']], hide_index=True)
     else:
-        st.warning(f"합계 {sum(tgt_w.values())+fixed_p}%입니다. 100%를 맞춰주세요.")
+        st.warning(f"현재 합계가 {total_input}%입니다. 100%를 맞춰주세요!")
