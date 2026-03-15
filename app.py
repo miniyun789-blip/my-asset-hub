@@ -8,9 +8,9 @@ import requests
 from bs4 import BeautifulSoup
 
 # ==========================================
-# 1. 앱 기본 설정 & 모바일 최적화 UI
+# 1. 앱 기본 설정 & UI 스타일링
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V28", layout="wide")
+st.set_page_config(page_title="My Asset Hub V29", layout="wide")
 
 st.markdown("""
     <style>
@@ -29,10 +29,9 @@ SAVINGS_FILE = 'my_savings.csv'
 HISTORY_FILE = 'asset_history.csv'
 CONFIG_FILE = 'app_config.csv'
 
-# [에러 방어] 이전 V27에서 남은 찌꺼기 캐시 데이터 강제 삭제
-if 'edited_rebal_df' in st.session_state and '현재금액_raw' in st.session_state['edited_rebal_df'].columns:
-    del st.session_state['edited_rebal_df']
-    st.session_state['rebal_applied'] = False
+# 에러 방지용 세션 초기화 (V28 찌꺼기 삭제)
+if 'edited_rebal_df' in st.session_state: del st.session_state['edited_rebal_df']
+st.session_state['rebal_applied'] = False
 
 def load_data(file_name):
     if os.path.exists(file_name): return pd.read_csv(file_name).to_dict('records')
@@ -40,10 +39,10 @@ def load_data(file_name):
 def save_data(data, file_name):
     pd.DataFrame(data).to_csv(file_name, index=False)
 
-# [수정 완료] 자산 리스크 순서 자동 정렬 함수
 def sort_assets():
     risk_order = {"초고위험": 1, "위험": 2, "중립": 3, "안전": 4}
     st.session_state['stocks'].sort(key=lambda x: risk_order.get(x.get('리스크', '위험'), 99))
+    st.session_state['stocks'].sort(key=lambda x: x.get('매수평단가', 0) * x.get('보유수량', 0), reverse=True)
     save_data(st.session_state['stocks'], STOCKS_FILE)
 
 if 'stocks' not in st.session_state: st.session_state['stocks'] = load_data(STOCKS_FILE)
@@ -52,17 +51,25 @@ if 'config' not in st.session_state:
     cfg = load_data(CONFIG_FILE)
     st.session_state['config'] = cfg[0] if cfg else {"target_asset": 1000000000}
 
-# [핵심] 기존 야후 티커를 구글 파이낸스 티커로 자동 마이그레이션 (.KS -> :KRX)
-migrated = False
-for stock in st.session_state['stocks']:
-    t = stock.get('티커', '')
-    if t.endswith('.KS'): stock['티커'] = t.replace('.KS', ':KRX'); migrated = True
-    elif t.endswith('.KQ'): stock['티커'] = t.replace('.KQ', ':KOSDAQ'); migrated = True
-if migrated: save_data(st.session_state['stocks'], STOCKS_FILE)
+# ==========================================
+# 2. 구글 파이낸스 & KRX 데이터 엔진 (100% 차단 없음)
+# ==========================================
+@st.cache_data(ttl=86400) # 하루 한 번만 한국거래소 DB 다운로드
+def load_krx_list():
+    try:
+        url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download'
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.content, 'html.parser')
+        krx_dict = {}
+        for tr in soup.select('tr')[1:]:
+            tds = tr.select('td')
+            if len(tds) > 1:
+                name = tds[0].text.strip()
+                code = tds[1].text.strip().zfill(6) # 6자리 코드 생성
+                krx_dict[name] = code
+        return krx_dict
+    except: return {}
 
-# ==========================================
-# 2. 구글 파이낸스 (Google Finance) 전면 도입 엔진
-# ==========================================
 @st.cache_data(ttl=600)
 def get_exchange_rate():
     try:
@@ -94,7 +101,6 @@ def get_upbit_data(market):
 def verify_and_get_ticker(input_val):
     input_val = input_val.strip()
     upper_val = input_val.upper()
-    headers = {'User-Agent': 'Mozilla/5.0'}
     
     # 1. 코인 검사
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
@@ -102,45 +108,34 @@ def verify_and_get_ticker(input_val):
         if key in upper_val: return val, val.replace("KRW-", "")
     if upper_val.startswith("KRW-"): return upper_val, upper_val.replace("KRW-", "")
     
-    # 2. 네이버 검색(이름 추출) + 구글 파이낸스(검증) 하이브리드 엔진
-    try:
-        url_ac = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
-        res_ac = requests.get(url_ac, headers=headers, timeout=5).json()
-        if res_ac.get('items') and len(res_ac['items'][0]) > 0:
-            kor_name = res_ac['items'][0][0][0][0]
-            ticker_code = res_ac['items'][0][0][1][0]
-            clean_ticker = ticker_code.split('.')[0]
-            
-            # 국장(6자리) 구글 파이낸스 매칭
-            if len(clean_ticker) == 6 and clean_ticker.isdigit():
-                for ex in ['KRX', 'KOSDAQ']:
-                    gf_ticker = f"{clean_ticker}:{ex}"
-                    gf_url = f"https://www.google.com/finance/quote/{gf_ticker}"
-                    res = requests.get(gf_url, headers=headers, timeout=5)
-                    if res.status_code == 200 and 'YMlKec fxKbKc' in res.text:
-                        return gf_ticker, kor_name
-            else:
-                # 미장 구글 파이낸스 매칭
-                gf_url = f"https://www.google.com/finance/quote/{clean_ticker}"
-                res = requests.get(gf_url, headers=headers, timeout=5)
-                if res.status_code == 200 and 'YMlKec fxKbKc' in res.text:
-                    actual_ticker = res.url.split('/')[-1]
-                    return actual_ticker, kor_name
-    except: pass
+    # 2. 한국거래소(KRX) DB 이름 직매칭 (절대 실패 안 함)
+    krx_dict = load_krx_list()
+    if input_val in krx_dict:
+        code = krx_dict[input_val]
+        for ex in ['KRX', 'KOSDAQ']:
+            ticker = f"{code}:{ex}"
+            p, _ = get_stock_data(ticker)
+            if p > 0: return ticker, input_val
 
-    # 3. 구글 파이낸스 직접 긁어오기 (티커를 바로 쳤을 때)
-    try:
-        gf_url = f"https://www.google.com/finance/quote/{upper_val}"
-        res = requests.get(gf_url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            name_div = soup.select_one('.zzDege')
-            price_div = soup.select_one('.YMlKec.fxKbKc')
-            if name_div and price_div:
-                actual_ticker = res.url.split('/')[-1]
-                return actual_ticker, name_div.text
-    except: pass
+    # 3. 직접 티커 숫자 입력 시
+    if len(upper_val) == 6 and upper_val.isdigit():
+        for ex in ['KRX', 'KOSDAQ']:
+            ticker = f"{upper_val}:{ex}"
+            p, _ = get_stock_data(ticker)
+            if p > 0:
+                name = next((k for k, v in krx_dict.items() if v == upper_val), upper_val)
+                return ticker, name
+
+    # 4. 구글 파이낸스 직접 검색 (미장, 해외주식 등)
+    # 4-1. AAPL 등 직접 입력
+    p, _ = get_stock_data(upper_val)
+    if p > 0: return upper_val, upper_val
     
+    for ex in ['NASDAQ', 'NYSE']:
+        ticker = f"{upper_val}:{ex}"
+        p, _ = get_stock_data(ticker)
+        if p > 0: return ticker, upper_val
+        
     return None, None
 
 exchange_rate = get_exchange_rate()
@@ -161,11 +156,11 @@ with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
         except: st.error("숫자만 입력!")
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 카카오, AAPL")
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 테슬라, AAPL")
 st.sidebar.markdown("[👉 구글 파이낸스 주식 검색](https://www.google.com/finance/?hl=ko)", unsafe_allow_html=True)
 
 if asset_input:
-    with st.spinner("구글 파이낸스 검색 중..."):
+    with st.spinner("구글 파이낸스 엔진 가동 중..."):
         valid_ticker, valid_name = verify_and_get_ticker(asset_input)
     if valid_ticker:
         st.sidebar.success(f"✅ {valid_name} ({valid_ticker})")
@@ -190,10 +185,10 @@ if asset_input:
                 st.session_state['stocks'][existing_idx].update({'매수평단가': final_price, '보유수량': final_qty})
             else:
                 st.session_state['stocks'].append({"종목명": valid_name, "티커": valid_ticker, "매수평단가": new_price, "보유수량": new_qty, "해외여부": is_foreign, "리스크": risk_level.split(" ")[0]})
-            sort_assets() # 저장 시 자동 정렬
+            sort_assets()
             st.rerun()
     else:
-        st.sidebar.error("⚠️ 검색 실패. 정확한 이름이나 구글 파이낸스 티커(예: 005930:KRX)를 입력해주세요.")
+        st.sidebar.error("⚠️ 검색 실패. 정확한 이름이나 구글 파이낸스 티커(예: 005930:KRX, AAPL:NASDAQ)를 입력해주세요.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
@@ -218,7 +213,7 @@ risk_group = {"초고위험": 0, "위험": 0, "중립": 0, "안전": 0}
 stock_display = []
 total_buy = 0 
 
-sort_assets() # 대시보드 렌더링 전 한 번 더 확실하게 자동 정렬
+sort_assets()
 
 for idx, stock in enumerate(st.session_state['stocks']):
     ticker = stock.get('티커', '')
@@ -449,7 +444,7 @@ with tab3:
             re_items.append({
                 "자산군": r_map.get(s['리스크'], "기타"), 
                 "종목명": s['종목명'], 
-                "현재금액": int(s['평가']), 
+                "현재금액_raw": int(s['평가']), 
                 "수익률": s['수익률'],
                 "현재가": s['현재가'], 
                 "티커": s['티커']
@@ -460,49 +455,59 @@ with tab3:
             re_items.append({
                 "자산군": grp, 
                 "종목명": f"[{b_type}] {sv.get('상품명', '은행')}", 
-                "현재금액": int(sv.get('월납입액',0)*sv.get('현재회차',1)), 
+                "현재금액_raw": int(sv.get('월납입액',0)*sv.get('현재회차',1)), 
                 "수익률": 0.0,
                 "현재가": 0, 
                 "티커": "SAV"
             })
+            
+        # [핵심 수정 2] 없는 자산군(0원)도 2단계 표에 추가하여 목표 비중 할당 가능하도록 보완
+        existing_groups = set(item['자산군'] for item in re_items)
+        for grp in ["1. 초고위험", "2. 위험", "3. 중립", "4. 안전(유동)"]:
+            if grp not in existing_groups:
+                re_items.append({
+                    "자산군": grp, 
+                    "종목명": "💡 신규 자산 배분 필요", 
+                    "현재금액_raw": 0, 
+                    "수익률": 0.0,
+                    "현재가": 0, 
+                    "티커": "NEW"
+                })
         
         rdf = pd.DataFrame(re_items)
         target_map = {"1. 초고위험": t1, "2. 위험": t2, "3. 중립": t3, "4. 안전(유동)": t4, "5. 안전(고정)": t5}
         
-        def color_risk(val):
+        def highlight_row(row):
             colors = {'1. 초고위험': '#FFCDD2', '2. 위험': '#FFE0B2', '3. 중립': '#BBDEFB', '4. 안전(유동)': '#C8E6C9', '5. 안전(고정)': '#F5F5F5'}
-            return f'background-color: {colors.get(val, "")}'
+            color = colors.get(row['자산군'], '')
+            return [f'background-color: {color}'] * len(row)
 
         if not rdf.empty:
-            # 정렬 보장
-            rdf.sort_values(by=['자산군', '현재금액'], ascending=[True, False], inplace=True)
+            rdf.sort_values(by=['자산군', '현재금액_raw'], ascending=[True, False], inplace=True)
             rdf.reset_index(drop=True, inplace=True)
             
-            # [에러 해결 방어막] 계산용 '현재금액' 컬럼은 절대 건드리지 않고, 보여주기용 껍데기 컬럼만 생성
             def format_amt_profit(row):
-                if row['티커'] == 'SAV': return f"{row['현재금액']:,.0f}원"
+                if row['티커'] in ['SAV', 'NEW']: return f"{row['현재금액_raw']:,.0f}원"
                 else:
                     sign = "+" if row['수익률'] > 0 else ""
-                    return f"{row['현재금액']:,.0f}원 ({sign}{row['수익률']:.2f}%)"
+                    return f"{row['현재금액_raw']:,.0f}원 ({sign}{row['수익률']:.2f}%)"
             rdf['현재 금액(수익률)'] = rdf.apply(format_amt_profit, axis=1)
 
             default_targets = []
             for idx, row in rdf.iterrows():
                 grp = row['자산군']
-                if grp == "5. 안전(고정)": default_targets.append(round(row['현재금액']/grand_total*100, 1) if grand_total>0 else 0)
+                if grp == "5. 안전(고정)": default_targets.append(round(row['현재금액_raw']/grand_total*100, 1) if grand_total>0 else 0)
                 else:
                     grp_tgt = target_map.get(grp, 0)
-                    grp_sum = rdf[rdf['자산군'] == grp]['현재금액'].sum()
-                    val = (row['현재금액']/grp_sum)*grp_tgt if grp_sum > 0 else 0
+                    grp_sum = rdf[rdf['자산군'] == grp]['현재금액_raw'].sum()
+                    val = (row['현재금액_raw']/grp_sum)*grp_tgt if grp_sum > 0 else 0
                     default_targets.append(round(val, 1))
             rdf['💡 목표(%)'] = default_targets
             
-            # [수정 완료] 자산군 열에만 색상을 매핑 (st.data_editor 호환)
             display_cols = ['자산군', '종목명', '현재 금액(수익률)', '💡 목표(%)']
-            try: styled_rdf = rdf[display_cols].style.map(color_risk, subset=['자산군'])
-            except: styled_rdf = rdf[display_cols].style.applymap(color_risk, subset=['자산군'])
+            try: styled_rdf = rdf[display_cols].style.apply(highlight_row, axis=1)
+            except: styled_rdf = rdf[display_cols].style.apply(highlight_row, axis=1)
 
-            # 2단계 에디터 출력
             edited = st.data_editor(styled_rdf, use_container_width=True, hide_index=True,
                                    column_config={"💡 목표(%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=0.1)})
             
@@ -525,20 +530,21 @@ with tab3:
             if st.button("🚀 3단계: 최종 액션플랜 생성 및 적용", use_container_width=True, type="primary"):
                 if is_step2_valid:
                     st.session_state['rebal_applied'] = True
-                    calc_df = rdf.copy() # 원본 데이터를 그대로 3단계로 전달 (KeyError 완벽 차단)
+                    calc_df = rdf.copy()
                     calc_df['💡 목표(%)'] = edited['💡 목표(%)'].values
                     st.session_state['edited_rebal_df'] = calc_df
                 else:
                     st.error("2단계 비중을 모두 맞춘 후 버튼을 눌러주세요.")
             
             # --- [Step 3: 액션 플랜] ---
+            # [핵심 수정 1] KeyError 방어 완료: '현재금액_raw' 사용
             if st.session_state.get('rebal_applied', False) and 'edited_rebal_df' in st.session_state:
                 st.divider()
                 st.subheader("🎯 3단계: 최종 리밸런싱 액션 플랜")
                 final_edited = st.session_state['edited_rebal_df']
                 
                 final_edited['목표금액'] = (grand_total * (final_edited['💡 목표(%)'] / 100)).astype(int)
-                final_edited['차액'] = final_edited['목표금액'] - final_edited['현재금액']
+                final_edited['차액'] = final_edited['목표금액'] - final_edited['현재금액_raw']
                 
                 def get_action(row):
                     if row['자산군'] == "5. 안전(고정)": return "🔒 유지", "-"
@@ -555,11 +561,9 @@ with tab3:
                     return "유지", "-"
                     
                 final_edited[['액션', '수량가이드']] = final_edited.apply(get_action, axis=1, result_type='expand')
-                
-                # 3단계 출력용 포맷팅
-                final_edited.rename(columns={'현재금액': '현재금액(원)'}, inplace=True)
+                final_edited.rename(columns={'현재금액_raw': '현재금액(원)'}, inplace=True)
                 display_df = final_edited[['자산군', '종목명', '현재금액(원)', '목표금액', '액션', '수량가이드']]
                 
-                try: f_style = display_df.style.map(color_risk, subset=['자산군']).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
-                except: f_style = display_df.style.applymap(color_risk, subset=['자산군']).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
+                try: f_style = display_df.style.apply(highlight_row, axis=1).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
+                except: f_style = display_df.style.apply(highlight_row, axis=1).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
                 st.dataframe(f_style, hide_index=True, use_container_width=True)
