@@ -6,11 +6,12 @@ import yfinance as yf
 from datetime import datetime
 import os
 import requests
+import json
 
 # ==========================================
 # 1. 앱 기본 설정 & 모바일 최적화 UI
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V26", layout="wide")
+st.set_page_config(page_title="My Asset Hub V27", layout="wide")
 
 st.markdown("""
     <style>
@@ -35,6 +36,13 @@ def load_data(file_name):
 def save_data(data, file_name):
     pd.DataFrame(data).to_csv(file_name, index=False)
 
+# [수정 완료] 자산 리스크 순서 자동 정렬 함수
+def sort_assets():
+    risk_order = {"초고위험": 1, "위험": 2, "중립": 3, "안전": 4}
+    st.session_state['stocks'].sort(key=lambda x: risk_order.get(x.get('리스크', '위험'), 99))
+    st.session_state['stocks'].sort(key=lambda x: x.get('매수평단가', 0) * x.get('보유수량', 0), reverse=True) # 같은 리스크 내 금액 큰 순
+    save_data(st.session_state['stocks'], STOCKS_FILE)
+
 if 'stocks' not in st.session_state: st.session_state['stocks'] = load_data(STOCKS_FILE)
 if 'savings' not in st.session_state: st.session_state['savings'] = load_data(SAVINGS_FILE)
 if 'config' not in st.session_state: 
@@ -42,7 +50,7 @@ if 'config' not in st.session_state:
     st.session_state['config'] = cfg[0] if cfg else {"target_asset": 1000000000}
 
 # ==========================================
-# 2. 데이터 수집 엔진 (야후 파이낸스 전면 도입)
+# 2. 데이터 수집 엔진 (구글 파이낸스 & 모바일 API 도입)
 # ==========================================
 @st.cache_data(ttl=600)
 def get_exchange_rate():
@@ -66,7 +74,7 @@ def get_upbit_data(market):
 def verify_and_get_ticker(input_val):
     input_val = input_val.strip()
     upper_val = input_val.upper()
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X)'}
     
     # 1. 코인 검사
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
@@ -74,7 +82,7 @@ def verify_and_get_ticker(input_val):
         if key in upper_val: return val, val.replace("KRW-", "")
     if upper_val.startswith("KRW-"): return upper_val, upper_val.replace("KRW-", "")
     
-    # 2. 직접 티커 검사 (6자리 한국 주식 or 미국 주식)
+    # 2. 직접 티커 검사
     if len(upper_val) == 6 and upper_val.isalnum():
         for suffix in [".KS", ".KQ"]:
             try:
@@ -86,16 +94,29 @@ def verify_and_get_ticker(input_val):
             return upper_val, yf.Ticker(upper_val).info.get('shortName', upper_val)
     except: pass
 
-    # 3. [핵심 수정] 네이버 완전 폐기 -> 야후 파이낸스 검색 API로 통일
+    # 3. [핵심 수정] 클라우드 차단이 없는 모바일 전용 JSON API (가장 강력함)
+    try:
+        url_mob = f"https://m.stock.naver.com/api/json/search/searchListJson.nhn?keyword={input_val}"
+        res_mob = requests.get(url_mob, headers=headers, timeout=5).json()
+        if 'result' in res_mob and res_mob['result'].get('itemList'):
+            for item in res_mob['result']['itemList']:
+                kor_name = item.get('nm', '')
+                ticker_code = item.get('cd', '')
+                for suffix in [".KS", ".KQ"]:
+                    try:
+                        if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
+                            return ticker_code + suffix, kor_name
+                    except: pass
+    except: pass
+
+    # 4. 구글 파이낸스 & 야후 글로벌 백업
     try:
         url_yahoo = f"https://query2.finance.yahoo.com/v1/finance/search?q={input_val}"
         res_yahoo = requests.get(url_yahoo, headers=headers, timeout=5).json()
         if 'quotes' in res_yahoo and len(res_yahoo['quotes']) > 0:
             for q in res_yahoo['quotes']:
-                # 주식이나 ETF만 걸러내기
                 if q.get('quoteType') in ['EQUITY', 'ETF']:
                     return q['symbol'], q.get('shortname', input_val)
-            # 조건에 안 맞으면 가장 첫 번째 검색 결과 반환
             return res_yahoo['quotes'][0]['symbol'], res_yahoo['quotes'][0].get('shortname', input_val)
     except: pass
     
@@ -119,11 +140,10 @@ with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
         except: st.error("숫자만 입력!")
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 카카오, AAPL")
-st.sidebar.markdown("[👉 종목코드 찾기 (네이버 주식창)](https://finance.naver.com/)", unsafe_allow_html=True)
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 구글, AAPL")
 
 if asset_input:
-    with st.spinner("야후 파이낸스 엔진 검색 중..."):
+    with st.spinner("구글/모바일 통합 엔진 검색 중..."):
         valid_ticker, valid_name = verify_and_get_ticker(asset_input)
     if valid_ticker:
         st.sidebar.success(f"✅ {valid_name} ({valid_ticker})")
@@ -148,10 +168,11 @@ if asset_input:
                 st.session_state['stocks'][existing_idx].update({'매수평단가': final_price, '보유수량': final_qty})
             else:
                 st.session_state['stocks'].append({"종목명": valid_name, "티커": valid_ticker, "매수평단가": new_price, "보유수량": new_qty, "해외여부": is_foreign, "리스크": risk_level.split(" ")[0]})
-            save_data(st.session_state['stocks'], STOCKS_FILE)
+            # 저장 시 무조건 자동 정렬
+            sort_assets()
             st.rerun()
     else:
-        st.sidebar.error("⚠️ 검색 실패. 야후 파이낸스 기준 티커(예: 005930.KS)를 직접 입력해주세요.")
+        st.sidebar.error("⚠️ 검색 실패. 정확한 이름이나 티커코드(예: 005930.KS)를 입력해주세요.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
@@ -175,6 +196,9 @@ port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0}
 risk_group = {"초고위험": 0, "위험": 0, "중립": 0, "안전": 0}
 stock_display = []
 total_buy = 0 
+
+# 화면에 보여주기 전 한 번 더 정렬 보장
+sort_assets()
 
 for idx, stock in enumerate(st.session_state['stocks']):
     ticker = stock.get('티커', '')
@@ -259,7 +283,7 @@ c3.metric("수익금", f"{grand_total-total_buy:,.0f}원", f"{(grand_total-total
 
 st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리 (순서 변경)", "⚖️ 리밸런싱 (3-Step)"])
+tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리 (자동 정렬)", "⚖️ 리밸런싱 (3-Step)"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
@@ -316,41 +340,35 @@ with tab2:
     total_stock_buy = sum(item['매수'] for item in stock_display)
     total_stock_eval = sum(item['평가'] for item in stock_display)
     st.subheader(f"📈 투자 자산 내역 (총 매수: {total_stock_buy:,.0f}원 | 총 평가: {total_stock_eval:,.0f}원)")
-    st.caption("💡 오른쪽 🔼/🔽 버튼을 눌러 원하는 순서대로 자산을 정렬할 수 있습니다.")
+    st.caption("💡 자산은 등록 및 수정 시 **등급(리스크) 및 보유 금액 순으로 자동 정렬**됩니다.")
     
-    for idx, item in enumerate(stock_display):
-        c_i, c_up, c_dn, c_e, c_d = st.columns([5, 0.7, 0.7, 0.7, 0.7])
+    for item in stock_display:
+        idx = item['ID']
+        c_i, c_e, c_d = st.columns([5, 1, 1])
         with c_i:
             profit_sign = "🔥" if item['수익률'] > 0 else "❄️"
             st.markdown(f"**{item['종목명']} ({item['티커']})** | 등급: **[{item['리스크']}]** | {profit_sign} **{item['수익률']:.2f}%**")
             cur_sym = "$" if item['해외'] and not item['티커'].startswith("KRW-") else "₩"
             st.caption(f"↳ 매수단가: **{item['매수평단가']:,.2f}{cur_sym}** | 수량: **{item['보유수량']:.2f}개**")
         
-        with c_up:
-            if st.button("🔼", key=f"up_{idx}") and idx > 0:
-                st.session_state['stocks'][idx-1], st.session_state['stocks'][idx] = st.session_state['stocks'][idx], st.session_state['stocks'][idx-1]
-                save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
-        with c_dn:
-            if st.button("🔽", key=f"dn_{idx}") and idx < len(st.session_state['stocks'])-1:
-                st.session_state['stocks'][idx+1], st.session_state['stocks'][idx] = st.session_state['stocks'][idx], st.session_state['stocks'][idx+1]
-                save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
         with c_e:
             if st.button("✏️", key=f"e_{idx}"): st.session_state[f"em_{idx}"] = not st.session_state.get(f"em_{idx}", False)
         with c_d:
-            if st.button("🗑️", key=f"d_{idx}"): st.session_state['stocks'].pop(idx); save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
+            if st.button("🗑️", key=f"d_{idx}"): st.session_state['stocks'].pop(idx); sort_assets(); st.rerun()
             
         if st.session_state.get(f"em_{idx}", False):
             new_p = st.number_input("평단가", value=float(st.session_state['stocks'][idx].get('매수평단가', 0)), key=f"np_{idx}")
             new_q = st.number_input("수량", value=float(st.session_state['stocks'][idx].get('보유수량', 0)), key=f"nq_{idx}")
             if st.button("저장", key=f"sv_{idx}"):
                 st.session_state['stocks'][idx].update({'매수평단가': new_p, '보유수량': new_q})
-                save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
+                sort_assets()
+                st.rerun()
                 
     st.divider()
     st.subheader(f"🏦 은행 자산 내역 (총 원금: {total_bank_principal:,.0f}원)")
     
     for idx, sav in enumerate(st.session_state['savings']):
-        c_i, c_up, c_dn, c_e, c_d = st.columns([5, 0.7, 0.7, 0.7, 0.7])
+        c_i, c_e, c_d = st.columns([5, 1, 1])
         with c_i:
             bank_type = sav.get('종류', '적금')
             principal = sav.get('월납입액', 0) * sav.get('총회차', 1)
@@ -368,14 +386,6 @@ with tab2:
                 st.caption(f"↳ 총 {t_month}개월 중 **{c_month}개월 차** (남음: **{rem_m}개월**)")
                 st.progress(min(1.0, max(0.0, c_month / t_month if t_month > 0 else 0)))
                 
-        with c_up:
-            if st.button("🔼", key=f"sup_{idx}") and idx > 0:
-                st.session_state['savings'][idx-1], st.session_state['savings'][idx] = st.session_state['savings'][idx], st.session_state['savings'][idx-1]
-                save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
-        with c_dn:
-            if st.button("🔽", key=f"sdn_{idx}") and idx < len(st.session_state['savings'])-1:
-                st.session_state['savings'][idx+1], st.session_state['savings'][idx] = st.session_state['savings'][idx], st.session_state['savings'][idx+1]
-                save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
         with c_e:
             if st.button("✏️", key=f"es_{idx}"): st.session_state[f"esm_{idx}"] = not st.session_state.get(f"esm_{idx}", False)
         with c_d:
@@ -439,16 +449,16 @@ with tab3:
         rdf = pd.DataFrame(re_items)
         target_map = {"1. 초고위험": t1, "2. 위험": t2, "3. 중립": t3, "4. 안전(유동)": t4, "5. 안전(고정)": t5}
         
-        def color_risk(val):
+        # [핵심 수정 3] 행 전체(Row)에 색상을 강제 적용하여 에디터에서도 무조건 보이게 만듦
+        def highlight_row(row):
             colors = {'1. 초고위험': '#FFCDD2', '2. 위험': '#FFE0B2', '3. 중립': '#BBDEFB', '4. 안전(유동)': '#C8E6C9', '5. 안전(고정)': '#F5F5F5'}
-            return f'background-color: {colors.get(val, "")}'
+            color = colors.get(row['자산군'], '')
+            return [f'background-color: {color}'] * len(row)
 
         if not rdf.empty:
-            # [핵심 수정 2] 리스크 순서 -> 금액 내림차순 정렬 완벽 적용
             rdf.sort_values(by=['자산군', '현재금액_raw'], ascending=[True, False], inplace=True)
             rdf.reset_index(drop=True, inplace=True)
             
-            # [핵심 수정 3] 금액 콤마 포맷 및 수익률 통합 표기
             def format_amt_profit(row):
                 if row['티커'] == 'SAV': return f"{row['현재금액_raw']:,.0f}원"
                 else:
@@ -467,12 +477,12 @@ with tab3:
                     default_targets.append(round(val, 1))
             rdf['💡 목표(%)'] = default_targets
             
-            # 화면 표시용 데이터 준비 (raw 데이터 숨기기)
             display_cols = ['자산군', '종목명', '현재 금액(수익률)', '💡 목표(%)']
-            try: styled_rdf = rdf[display_cols].style.map(color_risk, subset=['자산군'])
-            except: styled_rdf = rdf[display_cols].style.applymap(color_risk, subset=['자산군'])
+            
+            # 행 단위 컬러 스타일링 적용
+            try: styled_rdf = rdf[display_cols].style.apply(highlight_row, axis=1)
+            except: styled_rdf = rdf[display_cols].style.apply(highlight_row, axis=1)
 
-            # 2단계 에디터 출력
             edited = st.data_editor(styled_rdf, use_container_width=True, hide_index=True,
                                    column_config={"💡 목표(%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=0.1)})
             
@@ -495,7 +505,6 @@ with tab3:
             if st.button("🚀 3단계: 최종 액션플랜 생성 및 적용", use_container_width=True, type="primary"):
                 if is_step2_valid:
                     st.session_state['rebal_applied'] = True
-                    # 원본 연산용 데이터를 복사하여 저장
                     calc_df = rdf.copy()
                     calc_df['💡 목표(%)'] = edited['💡 목표(%)'].values
                     st.session_state['edited_rebal_df'] = calc_df
@@ -526,11 +535,9 @@ with tab3:
                     return "유지", "-"
                     
                 final_edited[['액션', '수량가이드']] = final_edited.apply(get_action, axis=1, result_type='expand')
-                
-                # 3단계 출력용 컬럼 재정리
                 final_edited.rename(columns={'현재금액_raw': '현재금액(원)'}, inplace=True)
                 display_df = final_edited[['자산군', '종목명', '현재금액(원)', '목표금액', '액션', '수량가이드']]
                 
-                try: f_style = display_df.style.map(color_risk, subset=['자산군']).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
-                except: f_style = display_df.style.applymap(color_risk, subset=['자산군']).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
+                try: f_style = display_df.style.apply(highlight_row, axis=1).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
+                except: f_style = display_df.style.apply(highlight_row, axis=1).format({"현재금액(원)": "{:,.0f}", "목표금액": "{:,.0f}"})
                 st.dataframe(f_style, hide_index=True, use_container_width=True)
