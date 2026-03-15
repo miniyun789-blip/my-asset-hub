@@ -53,7 +53,6 @@ if st.session_state.passcode == SECRET_PASSCODE and st.session_state.api_url.sta
 # 🛑 미인증 사용자 화면 (다크 테마 라운지)
 # ------------------------------------------
 if not st.session_state.authenticated:
-    # 로그인 화면 전용 다크 테마 및 중앙 정렬 CSS 주입
     st.markdown("""
     <style>
     /* 사이드바 및 헤더 숨기기 */
@@ -67,10 +66,10 @@ if not st.session_state.authenticated:
         color: #FFFFFF;
     }
     
-    /* 중앙 정렬 컨테이너 축소 */
+    /* 중앙 정렬 컨테이너 */
     .block-container {
-        padding-top: 15vh !important;
-        max-width: 450px !important;
+        padding-top: 10vh !important;
+        max-width: 500px !important;
     }
     
     /* 입력창 디자인 변경 */
@@ -92,27 +91,56 @@ if not st.session_state.authenticated:
         font-weight: bold !important;
     }
     
-    /* 가이드 토글 버튼 (투명) */
+    /* 가이드 버튼 스타일링 */
     .stButton>button[kind="secondary"] {
-        background: transparent !important;
+        background-color: #1A1C23 !important;
         color: #A0AEC0 !important;
-        border: none !important;
-        box-shadow: none !important;
-        font-size: 0.9em !important;
-        text-decoration: underline;
+        border: 1px solid #2D3748 !important;
+        border-radius: 8px !important;
     }
     .stButton>button[kind="secondary"]:hover {
         color: #FFFFFF !important;
+        border-color: #4f46e5 !important;
     }
     
-    .guide-text { color: #CBD5E0; font-size: 0.95em; line-height: 1.6; background: #1A1C23; padding: 20px; border-radius: 10px; border: 1px solid #2D3748; margin-bottom: 20px; }
+    /* 가이드 카드 UI */
+    .guide-card { 
+        background-color: #161b22; 
+        border: 1px solid #30363d; 
+        border-radius: 10px; 
+        padding: 20px; 
+        margin-bottom: 20px; 
+        color: #c9d1d9;
+        font-size: 0.95em;
+        line-height: 1.6;
+    }
+    
+    /* 맥OS 터미널 스타일 코드 박스 */
+    .terminal-box {
+        background-color: #010409;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+        overflow-x: auto;
+    }
+    .terminal-header {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot.red { background-color: #ff5f56; }
+    .dot.yellow { background-color: #ffbd2e; }
+    .dot.green { background-color: #27c93f; }
     </style>
     """, unsafe_allow_html=True)
 
     if not st.session_state.show_guide:
         # --- 로그인 UI ---
-        st.markdown("<h1 style='text-align:center; font-size:2.2rem; margin-bottom:5px; font-weight:700;'>Sign in</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#A0AEC0; margin-bottom:30px; font-size:1rem;'>Welcome to My Asset Hub Private Lounge</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center; font-size:2.5rem; margin-bottom:5px; font-weight:800; letter-spacing: -1px;'>Sign in</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#8b949e; margin-bottom:40px; font-size:1rem;'>My Asset Hub Private Lounge</p>", unsafe_allow_html=True)
 
         st.text_input("Passcode", type="password", key="temp_passcode", value=st.session_state.passcode, placeholder="초대 코드를 입력하세요")
         st.text_input("API URL", key="temp_api_url", value=st.session_state.api_url, placeholder="https://script.google.com/...")
@@ -120,26 +148,40 @@ if not st.session_state.authenticated:
         st.markdown("<br>", unsafe_allow_html=True)
         st.button("Sign in", on_click=login, type="primary", use_container_width=True)
         
-        st.markdown("<div style='text-align:center; margin-top:20px;'>", unsafe_allow_html=True)
-        st.button("처음이신가요? 나만의 금고 세팅 가이드 보기", on_click=toggle_guide)
+        # [디자인 수정] "처음이신가요?" 텍스트와 버튼 완벽 분리
+        st.markdown("<div style='text-align:center; margin-top:50px;'>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#8b949e; font-size:0.9rem; margin-bottom:10px;'>처음이신가요?</p>", unsafe_allow_html=True)
+        st.button("나만의 금고를 만들어보세요 ✨", on_click=toggle_guide, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        # --- 가이드 UI ---
-        st.markdown("<h2 style='text-align:center; font-size:1.8rem; margin-bottom:20px;'>✨ 3분 금고 세팅 가이드</h2>", unsafe_allow_html=True)
         
+    else:
+        # --- 터미널 가이드 UI ---
+        st.markdown("<h2 style='text-align:center; font-size:1.8rem; margin-bottom:30px; font-weight: 700;'>✨ 3분 금고 세팅 가이드</h2>", unsafe_allow_html=True)
+        
+        # STEP 1
         st.markdown("""
-        <div class='guide-text'>
-        <b>STEP 1: 구글 시트 준비</b><br>
-        1. 구글 드라이브에서 <b>새 스프레드시트</b> 생성<br>
-        2. 상단 메뉴 <b>[확장 프로그램] ➡️ [Apps Script]</b> 클릭
-        <br><br>
-        <b>STEP 2: 엔진 코드 붙여넣기</b><br>
-        3. 아래 코드를 복사하여 스크립트 창에 모두 덮어씌웁니다.
+        <div class='guide-card'>
+            <h4 style="color:#58a6ff; margin-top:0;">STEP 1: 구글 시트 준비</h4>
+            1. 구글 드라이브에서 <b>새 스프레드시트</b>를 생성합니다.<br>
+            2. 상단 메뉴 <b>[확장 프로그램] ➡️ [Apps Script]</b>를 클릭합니다.
         </div>
         """, unsafe_allow_html=True)
         
-        st.code("""
-function doPost(e) {
+        # STEP 2
+        st.markdown("""
+        <div class='guide-card'>
+            <h4 style="color:#58a6ff; margin-top:0;">STEP 2: 엔진 코드 붙여넣기</h4>
+            3. 열린 창의 내용을 지우고, 아래 코드를 복사하여 덮어씌웁니다.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 터미널 창 (HTML + CSS)
+        st.markdown("""
+        <div class='terminal-box'>
+            <div class='terminal-header'>
+                <div class='dot red'></div><div class='dot yellow'></div><div class='dot green'></div>
+            </div>
+            <pre style="margin:0; font-family:'Consolas', monospace; font-size:0.85em; color:#3fb950; white-space:pre;"><code>function doPost(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var params = JSON.parse(e.postData.contents);
   for (var sheetName in params) {
@@ -166,19 +208,21 @@ function doGet(e) {
     var obj = {}; headers.forEach(function(h, i) { obj[h] = row[i]; }); return obj;
   });
   return ContentService.createTextOutput(JSON.stringify(jsonArray)).setMimeType(ContentService.MimeType.JSON);
-}
-        """, language="javascript")
+}</code></pre>
+        </div>
+        """, unsafe_allow_html=True)
         
+        # STEP 3
         st.markdown("""
-        <div class='guide-text'>
-        <b>STEP 3: 배포 및 권한 승인 (가장 중요!)</b><br>
-        4. 우측 상단 <b>[배포] ➡️ [새 배포]</b> 클릭<br>
-        5. 유형: <b>웹 앱</b> / 액세스 권한: <b>모든 사용자(Anyone)</b> 설정 후 배포!<br>
-        6. ⚠️ <b>Google hasn’t verified this app</b> 경고창 해결법:<br>
-           &nbsp;&nbsp;↳ 좌측 하단 작은 글씨 <b>[Advanced (고급)]</b> 클릭<br>
-           &nbsp;&nbsp;↳ 아래에 뜨는 <b>[Go to 프로젝트 (unsafe)]</b> 클릭<br>
-           &nbsp;&nbsp;↳ 화면 하단의 <b>[Allow (허용)]</b> 클릭<br>
-        7. 발급된 <b>웹 앱 URL</b>을 복사하여 로그인 화면에 붙여넣으세요!
+        <div class='guide-card'>
+            <h4 style="color:#58a6ff; margin-top:0;">STEP 3: 배포 및 권한 승인 (가장 중요!)</h4>
+            4. 우측 상단 <b>[배포] ➡️ [새 배포]</b> 클릭<br>
+            5. 유형: <b>웹 앱</b> / 액세스 권한: <b>모든 사용자(Anyone)</b> 설정 후 배포!<br><br>
+            <span style="color:#ff7b72;">⚠️ <b>"Google hasn’t verified this app"</b> 경고창 해결법:</span><br>
+            &nbsp;&nbsp;↳ 좌측 하단 작은 글씨 <b>[Advanced (고급)]</b> 클릭<br>
+            &nbsp;&nbsp;↳ 아래에 뜨는 <b>[Go to 프로젝트 (unsafe)]</b> 클릭<br>
+            &nbsp;&nbsp;↳ 화면 하단의 <b>[Allow (허용)]</b> 클릭<br><br>
+            6. 마지막으로 발급된 <b>웹 앱 URL</b>을 복사하여 로그인 화면에 붙여넣으세요!
         </div>
         """, unsafe_allow_html=True)
         
@@ -189,7 +233,7 @@ function doGet(e) {
 # ==========================================
 # 🟢 인증 완료 사용자 메인 로직 (기본 테마 적용)
 # ==========================================
-# 메인 화면 전용 UI CSS (기본 화이트 톤 유지, 버전 추가)
+# 메인 화면 전용 UI CSS
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; max-width: 100% !important; }
@@ -370,9 +414,8 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-# [수정] 사이드바 맨 아래 회색 버전 명시 (v1.41)
 with st.sidebar:
-    st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.41</div>", unsafe_allow_html=True)
+    st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.42</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub")
 
