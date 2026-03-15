@@ -1,7 +1,8 @@
 import streamlit as st
+import pandas as pd
 import FinanceDataReader as fdr
 
-st.title("🔍 국장 검색 엔진 생존 테스트")
+st.title("🔍 국장 검색 엔진 생존 테스트 (수정본)")
 st.write("클라우드 방화벽을 뚫고 한글 종목명을 찾아오는지 검증합니다.")
 
 # 한국거래소(KRX) 전체 종목 리스트를 공식적으로 다운로드 (하루 1번만 캐싱)
@@ -18,7 +19,7 @@ def load_krx_data():
 query = st.text_input("검색할 한글 종목명 (예: 삼성전자, 카카오, SK하이닉스)", "삼성전자")
 
 if st.button("🚀 테스트 시작"):
-    with st.spinner("한국거래소 데이터 뒤지는 중..."):
+    with st.spinner("한국거래소 공식 데이터 뒤지는 중..."):
         df = load_krx_data()
         
         if isinstance(df, pd.DataFrame):
