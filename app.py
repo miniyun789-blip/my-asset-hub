@@ -6,12 +6,11 @@ import yfinance as yf
 from datetime import datetime
 import os
 import requests
-from bs4 import BeautifulSoup
 
 # ==========================================
 # 1. 앱 기본 설정 & 모바일 최적화 UI
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V23", layout="wide")
+st.set_page_config(page_title="My Asset Hub V24", layout="wide")
 
 st.markdown("""
     <style>
@@ -43,16 +42,11 @@ if 'config' not in st.session_state:
     st.session_state['config'] = cfg[0] if cfg else {"target_asset": 1000000000}
 
 # ==========================================
-# 2. 데이터 수집 엔진 (네이버/업비트/야후)
+# 2. 데이터 수집 엔진 (야후 API 100% 안정화)
 # ==========================================
 @st.cache_data(ttl=600)
 def get_exchange_rate():
-    try:
-        url = "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        return float(soup.select_one('.no_today .value').text.replace(',', ''))
+    try: return yf.Ticker("USDKRW=X").history(period="1d")['Close'].iloc[-1]
     except: return 1350.0
 
 @st.cache_data(ttl=300)
@@ -69,65 +63,42 @@ def get_upbit_data(market):
         return requests.get(url).json()[0]['trade_price'], []
     except: return 0, []
 
-@st.cache_data(ttl=3600)
-def fetch_company_name(ticker):
-    try:
-        info = yf.Ticker(ticker).info
-        return info.get('shortName') or info.get('longName') or ticker
-    except: return ticker
-
 def verify_and_get_ticker(input_val):
     input_val = input_val.strip()
     upper_val = input_val.upper()
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
+    # 1. 코인 검사
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
     for key, val in coin_map.items():
         if key in upper_val: return val, val.replace("KRW-", "")
     if upper_val.startswith("KRW-"): return upper_val, upper_val.replace("KRW-", "")
     
+    # 2. 확실한 6자리 티커 직접 입력 (한국주식)
     if len(upper_val) == 6 and upper_val.isalnum():
         for suffix in [".KS", ".KQ"]:
             try:
                 if not yf.Ticker(upper_val + suffix).history(period="1d").empty: 
-                    return upper_val + suffix, fetch_company_name(upper_val + suffix)
+                    return upper_val + suffix, yf.Ticker(upper_val + suffix).info.get('shortName', upper_val)
             except: pass
+
+    # 3. 미국주식 기본 티커 검사
     try:
         if not yf.Ticker(upper_val).history(period="1d").empty: 
-            return upper_val, fetch_company_name(upper_val)
+            return upper_val, yf.Ticker(upper_val).info.get('shortName', upper_val)
     except: pass
 
-    # [수정 완료] 1순위: 네이버 자동완성 API 파싱 에러 수정
+    # 4. [핵심 수정] 야후 파이낸스 글로벌 검색 API (클라우드 서버 차단 없음)
     try:
-        url_ac = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
-        res_ac = requests.get(url_ac, headers=headers, timeout=3).json()
-        if res_ac.get('items') and len(res_ac['items'][0]) > 0:
-            best_match = res_ac['items'][0][0]
-            kor_name = best_match[0][0] # 문자열 정확히 추출
-            ticker_code = best_match[1][0] # 문자열 정확히 추출
-            for suffix in [".KS", ".KQ"]:
-                try:
-                    if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
-                        return ticker_code + suffix, kor_name
-                except: pass
-    except: pass
-
-    # [수정 완료] 2순위: 네이버 검색 페이지 직접 스크래핑 (API 차단 대비용 백업)
-    try:
-        url_search = f"https://finance.naver.com/search/searchList.naver?query={input_val}"
-        res_search = requests.get(url_search, headers=headers, timeout=3)
-        soup = BeautifulSoup(res_search.text, 'html.parser')
-        first_row = soup.select_one('.tbl_search tbody tr')
-        if first_row:
-            a_tag = first_row.select_one('td.tit a')
-            if a_tag:
-                ticker_code = a_tag['href'].split('code=')[-1]
-                kor_name = a_tag.text.strip()
-                for suffix in [".KS", ".KQ"]:
-                    try:
-                        if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
-                            return ticker_code + suffix, kor_name
-                    except: pass
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={input_val}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=3).json()
+        if 'quotes' in res and len(res['quotes']) > 0:
+            for q in res['quotes']:
+                # 주식(EQUITY)이나 ETF만 필터링
+                if q.get('quoteType') in ['EQUITY', 'ETF']:
+                    return q['symbol'], q.get('shortname', input_val)
+            # 필터링 안되면 검색된 첫 번째 결과 반환
+            return res['quotes'][0]['symbol'], res['quotes'][0].get('shortname', input_val)
     except: pass
     
     return None, None
@@ -150,8 +121,7 @@ with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
         except: st.error("숫자만 입력!")
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 카카오, AAPL, BTC")
-st.sidebar.markdown("[👉 종목코드 찾기 (네이버)](https://finance.naver.com/)")
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 카카오, AAPL")
 
 if asset_input:
     with st.spinner("종목 검색 중..."):
@@ -182,7 +152,7 @@ if asset_input:
             save_data(st.session_state['stocks'], STOCKS_FILE)
             st.rerun()
     else:
-        st.sidebar.error("⚠️ 검색 실패. 정확한 이름이나 티커를 입력해 주세요.")
+        st.sidebar.error("⚠️ 검색 실패. 클라우드 통신 문제일 수 있으니 티커코드(예: 005930.KS)를 직접 입력해 보세요.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
@@ -242,7 +212,7 @@ for idx, stock in enumerate(st.session_state['stocks']):
 
 total_sav_val = 0
 fixed_sav_val = 0
-total_bank_principal = 0 # 은행 원금 총합용
+total_bank_principal = 0
 
 for sav in st.session_state['savings']:
     bank_type = sav.get('종류', '적금')
@@ -290,38 +260,32 @@ c3.metric("수익금", f"{grand_total-total_buy:,.0f}원", f"{(grand_total-total
 
 st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱"])
+tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리 (순서 변경)", "⚖️ 리밸런싱"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         st.subheader("⚖️ 포트폴리오 비중")
-        # [수정 완료] 차트 배열 순서 강제 고정 (가상화폐 -> 해외주식 -> 국내주식 -> 은행)
         port_labels = ["가상화폐", "해외 주식", "국내 주식", "은행(안전)"]
         port_vals = [port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val]
         fig1 = go.Figure(data=[go.Pie(labels=port_labels, values=port_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
         fig1.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
-        fig1.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, 
-                          legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
+        fig1.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
         st.plotly_chart(fig1, use_container_width=True)
         
     with col_p2:
         st.subheader("🛡️ 리스크 다각화")
-        # [수정 완료] 차트 배열 순서 강제 고정 (초고위험 -> 위험 -> 중립 -> 안전)
         risk_labels = ["초고위험", "위험", "중립", "안전"]
         risk_vals = [risk_group["초고위험"], risk_group["위험"], risk_group["중립"], risk_group["안전"]]
         fig2 = go.Figure(data=[go.Pie(labels=risk_labels, values=risk_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#E74C3C','#F39C12','#3498DB','#2ECC71'])])
         fig2.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
-        fig2.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True,
-                          legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
+        fig2.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
         st.plotly_chart(fig2, use_container_width=True)
 
     st.divider()
     st.subheader("🚀 자산 성장 타임라인")
     if not history_df.empty:
         time_view = st.radio("보기 옵션", ["일별", "월별", "연별"], horizontal=True)
-        
-        # [수정 완료] 매일매일 빈 날짜 채워주기 로직 (Forward Fill)
         history_df['날짜'] = pd.to_datetime(history_df['날짜'])
         min_date = history_df['날짜'].min()
         max_date = pd.to_datetime(today_str)
@@ -350,65 +314,82 @@ with tab1:
         st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
 
 with tab2:
-    # [수정 완료] 헤더에 총 매수금액 및 총 평가액 표기
     total_stock_buy = sum(item['매수'] for item in stock_display)
     total_stock_eval = sum(item['평가'] for item in stock_display)
     st.subheader(f"📈 투자 자산 내역 (총 매수: {total_stock_buy:,.0f}원 | 총 평가: {total_stock_eval:,.0f}원)")
+    st.caption("💡 오른쪽 🔼/🔽 버튼을 눌러 원하는 순서대로 자산을 정렬할 수 있습니다.")
     
-    for item in stock_display:
-        c_i, c_e, c_d = st.columns([5, 1, 1])
+    for idx, item in enumerate(stock_display):
+        c_i, c_up, c_dn, c_e, c_d = st.columns([5, 0.7, 0.7, 0.7, 0.7])
         with c_i:
             profit_sign = "🔥" if item['수익률'] > 0 else "❄️"
             st.markdown(f"**{item['종목명']} ({item['티커']})** | 등급: **[{item['리스크']}]** | {profit_sign} **{item['수익률']:.2f}%**")
             cur_sym = "$" if item['해외'] and not item['티커'].startswith("KRW-") else "₩"
-            st.caption(f"↳ 매수단가: **{item['매수평단가']:,.2f}{cur_sym}** | 수량: **{item['보유수량']:.2f}개** | 매수금액: **{item['매수']:,.0f}원** | 평가액: **{item['평가']:,.0f}원**")
+            st.caption(f"↳ 매수단가: **{item['매수평단가']:,.2f}{cur_sym}** | 수량: **{item['보유수량']:.2f}개**")
+        
+        # [핵심 수정] 위아래 순서 변경 버튼 도입
+        with c_up:
+            if st.button("🔼", key=f"up_{idx}") and idx > 0:
+                st.session_state['stocks'][idx-1], st.session_state['stocks'][idx] = st.session_state['stocks'][idx], st.session_state['stocks'][idx-1]
+                save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
+        with c_dn:
+            if st.button("🔽", key=f"dn_{idx}") and idx < len(st.session_state['stocks'])-1:
+                st.session_state['stocks'][idx+1], st.session_state['stocks'][idx] = st.session_state['stocks'][idx], st.session_state['stocks'][idx+1]
+                save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
         with c_e:
-            if st.button("✏️", key=f"e_{item['ID']}"): st.session_state[f"em_{item['ID']}"] = not st.session_state.get(f"em_{item['ID']}", False)
+            if st.button("✏️", key=f"e_{idx}"): st.session_state[f"em_{idx}"] = not st.session_state.get(f"em_{idx}", False)
         with c_d:
-            if st.button("🗑️", key=f"d_{item['ID']}"): st.session_state['stocks'].pop(item['ID']); save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
-        if st.session_state.get(f"em_{item['ID']}", False):
-            new_p = st.number_input("평단가", value=float(st.session_state['stocks'][item['ID']].get('매수평단가', 0)), key=f"np_{item['ID']}")
-            new_q = st.number_input("수량", value=float(st.session_state['stocks'][item['ID']].get('보유수량', 0)), key=f"nq_{item['ID']}")
-            if st.button("저장", key=f"sv_{item['ID']}"):
-                st.session_state['stocks'][item['ID']].update({'매수평단가': new_p, '보유수량': new_q})
+            if st.button("🗑️", key=f"d_{idx}"): st.session_state['stocks'].pop(idx); save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
+            
+        if st.session_state.get(f"em_{idx}", False):
+            new_p = st.number_input("평단가", value=float(st.session_state['stocks'][idx].get('매수평단가', 0)), key=f"np_{idx}")
+            new_q = st.number_input("수량", value=float(st.session_state['stocks'][idx].get('보유수량', 0)), key=f"nq_{idx}")
+            if st.button("저장", key=f"sv_{idx}"):
+                st.session_state['stocks'][idx].update({'매수평단가': new_p, '보유수량': new_q})
                 save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
                 
     st.divider()
-    # [수정 완료] 헤더에 총 은행 원금 표기
     st.subheader(f"🏦 은행 자산 내역 (총 원금: {total_bank_principal:,.0f}원)")
     
     for idx, sav in enumerate(st.session_state['savings']):
-        c_i, c_e, c_d = st.columns([5, 1, 1])
+        c_i, c_up, c_dn, c_e, c_d = st.columns([5, 0.7, 0.7, 0.7, 0.7])
         with c_i:
             bank_type = sav.get('종류', '적금')
             principal = sav.get('월납입액', 0) * sav.get('총회차', 1)
             rate = sav.get('이율', 3.0)
-            multiplier = (sav.get('총회차', 1) + 1) / 2 / 12 if bank_type == "적금" else sav.get('총회차', 1) / 12
-            exp_int = principal * (rate / 100) * multiplier
-            st.markdown(f"**[{bank_type}] {sav.get('상품명', '이름없음')}** (연 **{rate}%**) | 원금: **{principal:,.0f}원** | 만기 시 예상 이자: **+ {exp_int:,.0f}원**")
+            exp_int = principal * (rate / 100) * ((sav.get('총회차', 1) + 1) / 2 / 12 if bank_type == "적금" else sav.get('총회차', 1) / 12)
+            st.markdown(f"**[{bank_type}] {sav.get('상품명', '이름없음')}** (연 **{rate}%**) | 만기 시 예상 이자: **+ {exp_int:,.0f}원**")
             
             c_month = sav.get('현재회차', 0)
             t_month = sav.get('총회차', 1)
             rem_m = t_month - c_month
-            
             if rem_m <= 0:
                 st.caption("↳ 🎉 **만기 달성!** 축하합니다!")
                 st.progress(1.0)
             else:
-                st.caption(f"↳ 총 {t_month}개월 중 **{c_month}개월 차** 진행 중 (만기까지 **{rem_m}개월** 남음)")
-                prog_val = min(1.0, max(0.0, c_month / t_month if t_month > 0 else 0))
-                st.progress(prog_val)
+                st.caption(f"↳ 총 {t_month}개월 중 **{c_month}개월 차** (남음: **{rem_m}개월**)")
+                st.progress(min(1.0, max(0.0, c_month / t_month if t_month > 0 else 0)))
                 
+        # [핵심 수정] 은행 자산도 위아래 정렬 추가
+        with c_up:
+            if st.button("🔼", key=f"sup_{idx}") and idx > 0:
+                st.session_state['savings'][idx-1], st.session_state['savings'][idx] = st.session_state['savings'][idx], st.session_state['savings'][idx-1]
+                save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
+        with c_dn:
+            if st.button("🔽", key=f"sdn_{idx}") and idx < len(st.session_state['savings'])-1:
+                st.session_state['savings'][idx+1], st.session_state['savings'][idx] = st.session_state['savings'][idx], st.session_state['savings'][idx+1]
+                save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
         with c_e:
             if st.button("✏️", key=f"es_{idx}"): st.session_state[f"esm_{idx}"] = not st.session_state.get(f"esm_{idx}", False)
         with c_d:
             if st.button("🗑️", key=f"ds_{idx}"): st.session_state['savings'].pop(idx); save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
+            
         if st.session_state.get(f"esm_{idx}", False):
-            col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-            new_m = col_e1.number_input("월 납입액", value=int(sav.get('월납입액', 0)), step=10000, key=f"sm_{idx}")
-            new_c = col_e2.number_input("현재 회차", value=int(sav.get('현재회차', 1)), step=1, key=f"sc_{idx}")
-            new_r = col_e3.number_input("이율(%)", value=float(sav.get('이율', 3.0)), step=0.1, key=f"sr_{idx}")
-            if col_e4.button("✔️ 저장", key=f"ssv_{idx}"):
+            c_e1, c_e2, c_e3, c_e4 = st.columns(4)
+            new_m = c_e1.number_input("월 납입액", value=int(sav.get('월납입액', 0)), step=10000, key=f"sm_{idx}")
+            new_c = c_e2.number_input("현재 회차", value=int(sav.get('현재회차', 1)), step=1, key=f"sc_{idx}")
+            new_r = c_e3.number_input("이율(%)", value=float(sav.get('이율', 3.0)), step=0.1, key=f"sr_{idx}")
+            if c_e4.button("✔️ 저장", key=f"ssv_{idx}"):
                 st.session_state['savings'][idx].update({'월납입액': new_m, '현재회차': new_c, '이율': new_r})
                 st.session_state[f"esm_{idx}"] = False
                 save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
@@ -425,8 +406,11 @@ with tab3:
     t4 = rcols[3].number_input("4.안전(유동)", value=0.0, step=1.0)
     t5 = rcols[4].number_input("5.안전(고정)", value=float(fixed_p), disabled=True)
     
-    if abs(t1+t2+t3+t4+t5-100) < 0.2:
-        st.success("✅ 비중 합계 100% 일치")
+    # [핵심 수정] 100% 합계 인지 오류 해결 (안내 메시지 명확화)
+    total_tgt_sum = round(t1 + t2 + t3 + t4 + float(fixed_p), 1)
+    
+    if abs(total_tgt_sum - 100.0) < 0.2:
+        st.success(f"✅ 비중 합계 100% 일치 (현재 {total_tgt_sum}%)")
         st.divider()
         st.subheader("🔬 2단계: 종목별 세부 조율")
         
@@ -474,6 +458,7 @@ with tab3:
                 d = row['차액']
                 p = row['현재가']
                 c = row['티커'].startswith("KRW-")
+                
                 if d > 10000:
                     s = f" (약 {d/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(d/p):,}주)" if p > 0 else "")
                     return f"🟢 매수 (+{d:,.0f}원)", s
@@ -489,3 +474,6 @@ with tab3:
             except: f_style = final_df.style.applymap(color_risk, subset=['자산군']).format({"현재금액": "{:,.0f}", "목표금액": "{:,.0f}"})
             st.dataframe(f_style, hide_index=True, use_container_width=True)
             st.info("💡 자산군 열을 클릭하면 위험도 순으로 자동 정렬됩니다.")
+    else:
+        # [핵심 수정] 100%가 아닐 때 멈추는 것이 아니라 확실하게 사유를 피드백
+        st.warning(f"⚠️ 현재 1단계 설정 합계가 **{total_tgt_sum}%** 입니다. 정확히 100%가 되어야 2단계로 넘어갈 수 있습니다.")
