@@ -13,12 +13,12 @@ import threading
 # ==========================================
 # 🔒 보안 설정: 대표님이 친구들에게 알려줄 초대 코드
 # ==========================================
-SECRET_PASSCODE = "2026"
+SECRET_PASSCODE = "SM2026"
 
 # ==========================================
 # 1. 앱 기본 설정 & UI 스타일링
 # ==========================================
-st.set_page_config(page_title="My Asset Hub 플랫폼", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="My Asset Hub v1.41", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -65,7 +65,7 @@ if st.session_state.passcode == SECRET_PASSCODE and st.session_state.api_url.sta
 # 🛑 미인증 사용자 화면 (로그인 및 가이드)
 # ------------------------------------------
 if not st.session_state.authenticated:
-    st.title("🏦 My Asset Hub 프라이빗 라운지")
+    st.title("🏦 My Asset Hub 프라이빗 라운지 (v1.41)")
     st.markdown("초대받은 분들만 이용할 수 있는 프리미엄 자산 관리 플랫폼입니다.")
     
     col1, col2 = st.columns([1, 1.5])
@@ -133,10 +133,10 @@ function doGet(e) {
             7. 발급된 <b>웹 앱 URL</b>을 복사하여 왼쪽 입력창에 넣으시면 끝입니다. 🎉
             </div>
             """, unsafe_allow_html=True)
-    st.stop() # 인증되지 않으면 여기서 앱 실행 정지
+    st.stop()
 
 # ==========================================
-# 🟢 인증 완료 사용자 메인 로직 (이하 V40과 완전 동일)
+# 🟢 인증 완료 사용자 메인 로직
 # ==========================================
 API_URL = st.session_state.api_url
 
@@ -175,7 +175,6 @@ def sort_and_save():
     if st.session_state['config'].get('auto_save', True): return save_all_to_cloud()
     return True
 
-# 데이터 수집 엔진
 kst_now = datetime.utcnow() + timedelta(hours=9)
 logic_date_str = (kst_now - timedelta(days=1)).strftime('%Y-%m-%d') if kst_now.hour < 3 else kst_now.strftime('%Y-%m-%d')
 
@@ -216,7 +215,6 @@ def get_price(ticker):
 
 exchange_rate = get_exchange_rate()
 
-# 사이드바 (컨트롤러)
 with st.sidebar:
     st.title("🛠️ 컨트롤러")
     st.metric("💵 실시간 환율", f"{exchange_rate:,.2f} 원")
@@ -229,7 +227,6 @@ with st.sidebar:
                 if save_all_to_cloud(): st.toast("✅ 엑셀 동기화 성공!")
                 else: st.error("❌ 연결 실패. 네트워크 상태를 확인하세요.")
     
-    # [추가] 로그아웃 버튼
     if st.button("🚪 다른 금고로 로그인", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.api_url = ""
@@ -309,8 +306,7 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-# 메인 대시보드
-st.title("💰 My Asset Hub (Private)")
+st.title("💰 My Asset Hub (Private v1.41)")
 
 risk_group = {r: 0 for r in active_risks}; risk_group["고정(은행)"] = 0
 port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0} 
