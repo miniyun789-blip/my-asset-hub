@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 # ==========================================
 # 1. 앱 기본 설정 & 모바일 최적화 UI
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V20", layout="wide")
+st.set_page_config(page_title="My Asset Hub V21", layout="wide")
 
 st.markdown("""
     <style>
@@ -77,19 +77,42 @@ def fetch_company_name(ticker):
     except: return ticker
 
 def verify_and_get_ticker(input_val):
-    input_val = input_val.strip().upper()
+    input_val = input_val.strip()
+    upper_val = input_val.upper()
+    
+    # 1. 코인 체크
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
     for key, val in coin_map.items():
-        if key in input_val: return val, val.replace("KRW-", "")
-    if input_val.startswith("KRW-"): return input_val, input_val.replace("KRW-", "")
-    if len(input_val) == 6 and input_val.isalnum():
+        if key in upper_val: return val, val.replace("KRW-", "")
+    if upper_val.startswith("KRW-"): return upper_val, upper_val.replace("KRW-", "")
+    
+    # 2. 직접 티커(알파벳/숫자 6자리) 입력 체크
+    if len(upper_val) == 6 and upper_val.isalnum():
         for suffix in [".KS", ".KQ"]:
             try:
-                if not yf.Ticker(input_val + suffix).history(period="1d").empty: return input_val + suffix, fetch_company_name(input_val + suffix)
+                if not yf.Ticker(upper_val + suffix).history(period="1d").empty: 
+                    return upper_val + suffix, fetch_company_name(upper_val + suffix)
             except: pass
     try:
-        if not yf.Ticker(input_val).history(period="1d").empty: return input_val, fetch_company_name(input_val)
+        if not yf.Ticker(upper_val).history(period="1d").empty: 
+            return upper_val, fetch_company_name(upper_val)
     except: pass
+
+    # 3. [신규 로직] 네이버 금융 API로 한글 종목명 자동 검색
+    try:
+        url = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
+        res = requests.get(url, timeout=3).json()
+        if res.get('items') and res['items'][0]:
+            best_match = res['items'][0][0] # 예: ['삼성전자', ['005930'], ...]
+            kor_name = best_match[0][0]
+            ticker_code = best_match[1][0]
+            for suffix in [".KS", ".KQ"]:
+                try:
+                    if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
+                        return ticker_code + suffix, kor_name
+                except: pass
+    except: pass
+    
     return None, None
 
 exchange_rate = get_exchange_rate()
@@ -110,17 +133,17 @@ with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
         except: st.error("숫자만 입력!")
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: AAPL, 삼성전자, BTC")
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 카카오, AAPL, BTC")
 st.sidebar.markdown("[👉 종목코드 찾기 (네이버)](https://finance.naver.com/)")
 
 if asset_input:
-    valid_ticker, valid_name = verify_and_get_ticker(asset_input)
+    with st.spinner("종목 검색 중..."):
+        valid_ticker, valid_name = verify_and_get_ticker(asset_input)
     if valid_ticker:
         st.sidebar.success(f"✅ {valid_name} ({valid_ticker})")
         is_crypto = valid_ticker.startswith("KRW-")
         is_foreign = not (valid_ticker.endswith(".KS") or valid_ticker.endswith(".KQ") or is_crypto)
         
-        # [방어코드] .get() 사용
         existing_idx = next((i for i, s in enumerate(st.session_state['stocks']) if s.get('티커') == valid_ticker), None)
         btn_label = "➕ 물타기/불타기 합산" if existing_idx is not None else "투자 자산 저장"
         
@@ -141,10 +164,13 @@ if asset_input:
                 st.session_state['stocks'].append({"종목명": valid_name, "티커": valid_ticker, "매수평단가": new_price, "보유수량": new_qty, "해외여부": is_foreign, "리스크": risk_level.split(" ")[0]})
             save_data(st.session_state['stocks'], STOCKS_FILE)
             st.rerun()
+    else:
+        st.sidebar.error("⚠️ 검색 실패. 정확한 이름이나 티커를 입력해 주세요.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
-    sav_name = st.text_input("은행명")
+    # [수정] 라벨을 통장이름으로 변경
+    sav_name = st.text_input("통장이름")
     sav_monthly = st.number_input("월 납입액", min_value=0, step=10000, format="%d")
     sav_curr = st.number_input("현재 회차", min_value=1)
     sav_total = st.number_input("총 만기 회차", min_value=1)
@@ -155,7 +181,7 @@ with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
         st.rerun()
 
 # ==========================================
-# 🖥️ 메인 대시보드 연산 (완벽한 방어코드 적용)
+# 🖥️ 메인 대시보드 연산
 # ==========================================
 st.title("💰 My Asset Hub")
 today_str = datetime.now().strftime('%Y-%m-%d')
@@ -169,7 +195,6 @@ for idx, stock in enumerate(st.session_state['stocks']):
     ticker = stock.get('티커', '')
     is_crypto = ticker.startswith("KRW-")
     is_foreign = stock.get('해외여부', False)
-    
     buy_p = stock.get('매수평단가', 0)
     qty = stock.get('보유수량', 0)
     
@@ -202,11 +227,9 @@ for idx, stock in enumerate(st.session_state['stocks']):
 total_sav_val = 0
 fixed_sav_val = 0
 for sav in st.session_state['savings']:
-    # [핵심 수정] 과거 데이터에 종류, 월납입액 등이 없어도 무조건 기본값을 부르도록 방어막 설정
     bank_type = sav.get('종류', '적금')
     sav_monthly = sav.get('월납입액', 0)
     sav_curr = sav.get('현재회차', 1)
-    
     amt = sav_monthly * sav_curr
     total_sav_val += amt
     total_buy += amt
@@ -215,7 +238,6 @@ for sav in st.session_state['savings']:
 grand_total = sum(port_group.values()) + total_sav_val
 risk_group["안전"] += total_sav_val
 
-# 히스토리 데이터 관리
 history_df = pd.DataFrame(load_data(HISTORY_FILE)) if load_data(HISTORY_FILE) else pd.DataFrame(columns=["날짜", "총자산"])
 if grand_total > 0:
     if not history_df.empty and today_str in history_df['날짜'].values:
@@ -224,7 +246,6 @@ if grand_total > 0:
         history_df = pd.concat([history_df, pd.DataFrame([{"날짜": today_str, "총자산": grand_total}])], ignore_index=True)
     save_data(history_df.to_dict('records'), HISTORY_FILE)
 
-# 상단 목표 자산
 target = st.session_state['config'].get('target_asset', 1000000000)
 rem_pct = max(100.0 - (grand_total/target*100), 0.0)
 status_color = "goal-green" if rem_pct == 0 else "goal-red"
@@ -313,10 +334,21 @@ with tab2:
             rate = sav.get('이율', 3.0)
             multiplier = (sav.get('총회차', 1) + 1) / 2 / 12 if bank_type == "적금" else sav.get('총회차', 1) / 12
             exp_int = principal * (rate / 100) * multiplier
-            st.markdown(f"**[{bank_type}] {sav.get('상품명', '이름없음')}** (연 **{rate}%**) | 원금: **{principal:,.0f}원** | 예상 이자: **+ {exp_int:,.0f}원**")
-            rem_m = sav.get('총회차', 1) - sav.get('현재회차', 0)
-            st.caption(f"↳ 총 {sav.get('총회차', 1)}개월 중 **{sav.get('현재회차', 0)}개월 차** 진행 중 (만기까지 **{rem_m}개월** 남음)")
-            st.progress(sav.get('현재회차', 0) / sav.get('총회차', 1) if sav.get('총회차', 1) > 0 else 0)
+            st.markdown(f"**[{bank_type}] {sav.get('상품명', '이름없음')}** (연 **{rate}%**) | 원금: **{principal:,.0f}원** | 만기 시 예상 이자: **+ {exp_int:,.0f}원**")
+            
+            # [수정] 만기 달성 체크 및 UI 에러(progress > 1.0) 방어
+            c_month = sav.get('현재회차', 0)
+            t_month = sav.get('총회차', 1)
+            rem_m = t_month - c_month
+            
+            if rem_m <= 0:
+                st.caption("↳ 🎉 **만기 달성!** 축하합니다!")
+                st.progress(1.0)
+            else:
+                st.caption(f"↳ 총 {t_month}개월 중 **{c_month}개월 차** 진행 중 (만기까지 **{rem_m}개월** 남음)")
+                prog_val = min(1.0, max(0.0, c_month / t_month if t_month > 0 else 0))
+                st.progress(prog_val)
+                
         with c_e:
             if st.button("✏️", key=f"es_{idx}"): st.session_state[f"esm_{idx}"] = not st.session_state.get(f"esm_{idx}", False)
         with c_d:
