@@ -12,7 +12,7 @@ import FinanceDataReader as fdr
 # ==========================================
 # 1. 앱 기본 설정 & UI 스타일링
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V33", layout="wide")
+st.set_page_config(page_title="My Asset Hub V34", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,6 +23,7 @@ st.markdown("""
     .stDataFrame { font-size: 1rem !important; }
     .goal-red { color: #E74C3C; font-weight: 900; font-size: 1.4rem; }
     .goal-green { color: #2ECC71; font-weight: 900; font-size: 1.4rem; }
+    .green-text { color: #2ECC71; font-size: 0.95em; margin-bottom: 10px; font-weight: 500; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -46,20 +47,22 @@ if 'config' not in st.session_state:
     cfg = load_data(CONFIG_FILE)
     st.session_state['config'] = cfg[0] if cfg else {
         "target_asset": 1000000000, 
-        "risk_levels": "초고위험, 위험, 중립, 안전"
+        "risk_levels": "초고위험,위험,중립,안전"
     }
 
-# 리스크 분류 리스트화 (커스텀 동적 지원)
-active_risks = [r.strip() for r in st.session_state['config'].get('risk_levels', "초고위험, 위험, 중립, 안전").split(',')]
+active_risks = [r.strip() for r in st.session_state['config'].get('risk_levels', "초고위험,위험,중립,안전").split(',') if r.strip()]
+
+def sort_assets():
+    st.session_state['stocks'].sort(key=lambda x: active_risks.index(x.get('리스크', active_risks[0])) if x.get('리스크') in active_risks else 99)
+    st.session_state['stocks'].sort(key=lambda x: x.get('매수평단가', 0) * x.get('보유수량', 0), reverse=True)
+    save_data(st.session_state['stocks'], STOCKS_FILE)
 
 # ==========================================
 # 2. 시간(KST 03:00 기준) 및 수집 엔진
 # ==========================================
 kst_now = datetime.utcnow() + timedelta(hours=9)
-if kst_now.hour < 3:
-    logic_date_str = (kst_now - timedelta(days=1)).strftime('%Y-%m-%d')
-else:
-    logic_date_str = kst_now.strftime('%Y-%m-%d')
+if kst_now.hour < 3: logic_date_str = (kst_now - timedelta(days=1)).strftime('%Y-%m-%d')
+else: logic_date_str = kst_now.strftime('%Y-%m-%d')
 
 @st.cache_data(ttl=86400)
 def load_market_data():
@@ -80,7 +83,6 @@ def load_market_data():
             df_us['시장'] = mkt
             dfs.append(df_us[['Symbol', 'Name', '시장']].rename(columns={'Symbol':'Code'}))
         except: pass
-        
     if dfs:
         total_df = pd.concat(dfs, ignore_index=True)
         total_df['Name'] = total_df['Name'].astype(str)
@@ -100,9 +102,7 @@ def get_exchange_rate():
 @st.cache_data(ttl=300)
 def get_price(ticker):
     if ticker.startswith("KRW-"):
-        try:
-            url = f"https://api.upbit.com/v1/ticker?markets={ticker}"
-            return requests.get(url).json()[0]['trade_price']
+        try: return requests.get(f"https://api.upbit.com/v1/ticker?markets={ticker}").json()[0]['trade_price']
         except: return 0.0
     
     clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
@@ -114,14 +114,11 @@ def get_price(ticker):
             mkt = match.iloc[0]['시장']
             if mkt in ['KRX', 'ETF/KR']: markets_to_try = [f"{clean_ticker}:KRX", f"{clean_ticker}:KOSDAQ"]
             elif mkt in ['NASDAQ', 'NYSE', 'AMEX']: markets_to_try = [f"{clean_ticker}:{mkt}"]
-    
-    if not markets_to_try:
-        markets_to_try = [f"{clean_ticker}:KRX", f"{clean_ticker}:NASDAQ", f"{clean_ticker}:NYSE", f"{clean_ticker}:NYSEARCA", f"{clean_ticker}:AMEX"]
+    if not markets_to_try: markets_to_try = [f"{clean_ticker}:KRX", f"{clean_ticker}:NASDAQ", f"{clean_ticker}:NYSE", f"{clean_ticker}:NYSEARCA", f"{clean_ticker}:AMEX"]
         
     for gf_ticker in markets_to_try:
         try:
-            url = f"https://www.google.com/finance/quote/{gf_ticker}"
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+            res = requests.get(f"https://www.google.com/finance/quote/{gf_ticker}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
             if res.status_code == 200 and 'YMlKec fxKbKc' in res.text:
                 soup = BeautifulSoup(res.text, 'html.parser')
                 return float(soup.select_one('.YMlKec.fxKbKc').text.replace('₩', '').replace('$', '').replace(',', ''))
@@ -138,16 +135,10 @@ st.sidebar.metric("💵 실시간 환율 (구글 기준)", f"{exchange_rate:,.2f
 
 with st.sidebar.expander("⚙️ 시스템 및 목표 설정", expanded=False):
     current_tgt = int(st.session_state['config'].get('target_asset', 1000000000))
-    current_risks = st.session_state['config'].get('risk_levels', "초고위험, 위험, 중립, 안전")
-    
     new_target_str = st.text_input("목표 금액 (원)", value=f"{current_tgt:,}")
-    # [핵심 수정 4] 리스크 분류 커스텀 가능
-    new_risk_str = st.text_input("리스크 분류 (쉼표로 구분)", value=current_risks)
-    
     if st.button("설정 업데이트"):
         try:
             st.session_state['config']['target_asset'] = int(new_target_str.replace(",", ""))
-            st.session_state['config']['risk_levels'] = new_risk_str
             save_data([st.session_state['config']], CONFIG_FILE)
             st.rerun()
         except: st.error("금액은 숫자와 콤마만 입력해주세요!")
@@ -188,13 +179,12 @@ if asset_input:
             
             currency_label = "원 ₩" if (is_crypto or not is_foreign) else "달러 $"
             
-            # [핵심 수정 3] 콤마(,) 입력이 가능한 text_input 매수단가
             raw_price = st.sidebar.text_input(f"매수 단가 ({currency_label})", value="0")
             try: new_price = float(raw_price.replace(',', ''))
             except: new_price = 0.0
             
             new_qty = st.sidebar.number_input("보유 수량", min_value=0.0, step=0.01)
-            risk_level = st.sidebar.selectbox("리스크 분류", active_risks)
+            risk_level = st.sidebar.selectbox("리스크 분류 선택", active_risks)
             
             if st.sidebar.button(btn_label, use_container_width=True):
                 if existing_idx is not None:
@@ -204,10 +194,25 @@ if asset_input:
                     st.session_state['stocks'][existing_idx].update({'매수평단가': final_price, '보유수량': final_qty})
                 else:
                     st.session_state['stocks'].append({"종목명": sel_name, "티커": sel_code, "매수평단가": new_price, "보유수량": new_qty, "해외여부": is_foreign, "리스크": risk_level})
-                save_data(st.session_state['stocks'], STOCKS_FILE)
+                sort_assets()
                 st.rerun()
     else:
         st.sidebar.warning("⚠️ 검색 결과가 없습니다.")
+
+# [핵심 수정 1] 리스크 분류를 자산 추가 하단으로 이동 및 엑셀형 편집기 도입
+with st.sidebar.expander("⚙️ 리스크 분류 추가/수정"):
+    st.caption("표 빈칸을 클릭해 항목을 추가하거나, 휴지통 아이콘을 눌러 삭제하세요.")
+    risk_df = pd.DataFrame({"리스크 명칭": active_risks})
+    edited_risk = st.data_editor(risk_df, num_rows="dynamic", use_container_width=True, hide_index=True)
+    if st.button("✔️ 분류 항목 저장"):
+        new_risks = edited_risk['리스크 명칭'].dropna().tolist()
+        new_risks = [r.strip() for r in new_risks if r.strip()]
+        if new_risks:
+            st.session_state['config']['risk_levels'] = ",".join(new_risks)
+            save_data([st.session_state['config']], CONFIG_FILE)
+            st.rerun()
+        else:
+            st.error("최소 1개의 리스크 분류가 필요합니다.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
@@ -228,7 +233,6 @@ with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
 # ==========================================
 st.title("💰 My Asset Hub")
 
-# 동적 리스크 그룹 초기화
 risk_group = {r: 0 for r in active_risks}
 risk_group["고정(은행)"] = 0
 port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0} 
@@ -259,7 +263,7 @@ for idx, stock in enumerate(st.session_state['stocks']):
         
     risk_cat = stock.get('리스크', active_risks[0] if active_risks else '기타')
     if risk_cat in risk_group: risk_group[risk_cat] += eval_amt
-    else: risk_group[risk_cat] = eval_amt # 과거 설정 잔재 방어
+    else: risk_group[risk_cat] = eval_amt
     
     profit_r = (eval_amt - buy_amt) / buy_amt * 100 if buy_amt > 0 else 0
     stock_display.append({
@@ -288,7 +292,6 @@ for sav in st.session_state['savings']:
 grand_total = sum(port_group.values()) + total_sav_val
 risk_group["고정(은행)"] += total_sav_val
 
-# [핵심 수정 5] KST 03:00 기준 히스토리 스냅샷 저장
 history_df = pd.DataFrame(load_data(HISTORY_FILE)) if load_data(HISTORY_FILE) else pd.DataFrame(columns=["날짜", "총자산"])
 if grand_total > 0:
     if not history_df.empty and logic_date_str in history_df['날짜'].values:
@@ -297,7 +300,6 @@ if grand_total > 0:
         history_df = pd.concat([history_df, pd.DataFrame([{"날짜": logic_date_str, "총자산": grand_total}])], ignore_index=True)
     save_data(history_df.to_dict('records'), HISTORY_FILE)
 
-# [핵심 수정 1-1] 주식 리스트 표시 전 등급순 -> 금액(평가액) 내림차순 정렬
 def get_risk_priority(r):
     try: return active_risks.index(r)
     except: return 999
@@ -319,9 +321,9 @@ st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 커스텀 리밸런싱"])
 
-# 동적 컬러 생성 헬퍼
+# [핵심 수정 2] 오리지널 강렬한 원색 컬러 팔레트로 롤백
 def get_risk_color(idx):
-    palette = ['#FFCDD2', '#FFE0B2', '#BBDEFB', '#C8E6C9', '#E1BEE7', '#D7CCC8']
+    palette = ['#E74C3C', '#F39C12', '#3498DB', '#2ECC71', '#9B59B6', '#1ABC9C', '#34495E']
     return palette[idx % len(palette)]
 
 with tab1:
@@ -330,7 +332,7 @@ with tab1:
         st.subheader("⚖️ 포트폴리오 비중")
         port_labels = ["가상화폐", "해외 주식", "국내 주식", "은행(안전)"]
         port_vals = [port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val]
-        fig1 = go.Figure(data=[go.Pie(labels=port_labels, values=port_vals, hole=.4, sort=False, direction='clockwise')])
+        fig1 = go.Figure(data=[go.Pie(labels=port_labels, values=port_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
         fig1.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
         fig1.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
         st.plotly_chart(fig1, use_container_width=True)
@@ -339,7 +341,7 @@ with tab1:
         st.subheader("🛡️ 리스크 다각화")
         risk_labels = list(risk_group.keys())
         risk_vals = list(risk_group.values())
-        risk_colors = [get_risk_color(i) if i < len(active_risks) else '#F5F5F5' for i in range(len(risk_labels))]
+        risk_colors = [get_risk_color(i) if i < len(active_risks) else '#BDC3C7' for i in range(len(risk_labels))]
         fig2 = go.Figure(data=[go.Pie(labels=risk_labels, values=risk_vals, hole=.4, sort=False, direction='clockwise', marker_colors=risk_colors)])
         fig2.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
         fig2.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
@@ -388,8 +390,8 @@ with tab2:
             profit_sign = "🔥" if item['수익률'] > 0 else "❄️"
             st.markdown(f"**{item['종목명']} ({item['티커']})** | 등급: **[{item['리스크']}]** | {profit_sign} **{item['수익률']:.2f}%**")
             cur_sym = "$" if item['해외'] else "₩"
-            # [핵심 수정 1] 평단가 수수료 제외 명시 및 UI 개선
-            st.caption(f"↳ 💰 매수 평단가 (수수료 제외): **{item['매수평단가']:,.2f}{cur_sym}** | 수량: **{item['보유수량']:.2f}개** | 평가액: **{item['평가']:,.0f}원**")
+            # [핵심 수정 3] 초록색 폰트 강제 적용
+            st.markdown(f"<div class='green-text'>↳ 💰 매수 평단가 (수수료 제외): <b>{item['매수평단가']:,.2f}{cur_sym}</b> | 수량: <b>{item['보유수량']:.2f}개</b> | 평가액: <b>{item['평가']:,.0f}원</b></div>", unsafe_allow_html=True)
         
         with c_e:
             if st.button("✏️", key=f"e_{idx}"): st.session_state[f"em_{idx}"] = not st.session_state.get(f"em_{idx}", False)
@@ -421,10 +423,11 @@ with tab2:
             t_month = sav.get('총회차', 1)
             rem_m = t_month - c_month
             if rem_m <= 0:
-                st.caption(f"↳ 🎉 **만기 달성!** (예상 이자: **+ {exp_int:,.0f}원**)")
+                # [핵심 수정 3] 초록색 폰트 강제 적용
+                st.markdown(f"<div class='green-text'>↳ 🎉 <b>만기 달성!</b> (예상 이자: <b>+ {exp_int:,.0f}원</b>)</div>", unsafe_allow_html=True)
                 st.progress(1.0)
             else:
-                st.caption(f"↳ 총 {t_month}개월 중 **{c_month}개월 차** (남음: **{rem_m}개월**)")
+                st.markdown(f"<div class='green-text'>↳ 총 {t_month}개월 중 <b>{c_month}개월 차</b> (남음: <b>{rem_m}개월</b>)</div>", unsafe_allow_html=True)
                 st.progress(min(1.0, max(0.0, c_month / t_month if t_month > 0 else 0)))
                 
         with c_e:
@@ -449,14 +452,12 @@ with tab3:
     fixed_p = round(fixed_sav_val/grand_total*100, 1) if grand_total>0 else 0
     st.info(f"🔒 고정 자산(적금/청약) 비중: **{fixed_p}%**")
     
-    # [핵심 수정 4] 커스텀 리스크 개수에 맞춘 동적 열(Column) 생성
     cols = st.columns(len(active_risks) + 1)
     tgt_weights = {}
     for i, r in enumerate(active_risks):
         tgt_weights[r] = cols[i].number_input(f"{i+1}. {r}", value=0.0, step=1.0)
     cols[-1].number_input(f"{len(active_risks)+1}. 고정(은행)", value=float(fixed_p), disabled=True)
     
-    # [핵심 수정 2] 부동소수점 오차 방어 (round 1 적용)
     total_tgt_sum = round(sum(tgt_weights.values()) + float(fixed_p), 1)
     
     if abs(total_tgt_sum - 100.0) >= 0.1:
@@ -490,12 +491,14 @@ with tab3:
         
         rdf = pd.DataFrame(re_items)
         
+        # [핵심 수정 2] 2단계 색상도 파스텔 원색 계열로 롤백 및 적용
         def highlight_matrix(df):
+            bg_palette = ['#FFCDD2', '#FFE0B2', '#BBDEFB', '#C8E6C9', '#E1BEE7', '#D7CCC8']
             style_df = pd.DataFrame('', index=df.index, columns=df.columns)
             for i, row in df.iterrows():
                 try: color_idx = active_risks.index(row['자산군'])
                 except: color_idx = 99
-                color = get_risk_color(color_idx) if color_idx != 99 else '#F5F5F5'
+                color = bg_palette[color_idx % len(bg_palette)] if color_idx != 99 else '#F5F5F5'
                 style_df.iloc[i] = f'background-color: {color}'
             return style_df
 
