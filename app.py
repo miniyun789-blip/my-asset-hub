@@ -18,7 +18,8 @@ SECRET_PASSCODE = "SM2026"
 # ==========================================
 # 1. 앱 기본 설정 & UI 스타일링
 # ==========================================
-st.set_page_config(page_title="My Asset Hub v1.41", layout="wide", initial_sidebar_state="expanded")
+# [수정] 브라우저 탭 이름에서 버전 제거
+st.set_page_config(page_title="My Asset Hub", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -37,7 +38,6 @@ st.markdown("""
 # ==========================================
 # 2. 입장 및 인증 시스템 (즐겨찾기 지원)
 # ==========================================
-# 주소창(URL)에 저장된 값이 있으면 불러오기
 query_params = st.query_params
 if 'api_url' not in st.session_state:
     st.session_state.api_url = query_params.get("api_url", "")
@@ -51,13 +51,11 @@ def login():
         st.session_state.passcode = st.session_state.temp_passcode
         st.session_state.api_url = st.session_state.temp_api_url
         st.session_state.authenticated = True
-        # 주소창에 값 저장 (즐겨찾기용)
         st.query_params["passcode"] = st.session_state.passcode
         st.query_params["api_url"] = st.session_state.api_url
     else:
         st.error("❌ 초대 코드가 틀렸거나, URL 형식이 올바르지 않습니다.")
 
-# 자동 로그인 체크
 if st.session_state.passcode == SECRET_PASSCODE and st.session_state.api_url.startswith("https://script.google.com/"):
     st.session_state.authenticated = True
 
@@ -65,7 +63,8 @@ if st.session_state.passcode == SECRET_PASSCODE and st.session_state.api_url.sta
 # 🛑 미인증 사용자 화면 (로그인 및 가이드)
 # ------------------------------------------
 if not st.session_state.authenticated:
-    st.title("🏦 My Asset Hub 프라이빗 라운지 (v1.41)")
+    # [수정] 메인 타이틀에서 버전 제거
+    st.title("🏦 My Asset Hub 프라이빗 라운지")
     st.markdown("초대받은 분들만 이용할 수 있는 프리미엄 자산 관리 플랫폼입니다.")
     
     col1, col2 = st.columns([1, 1.5])
@@ -92,7 +91,6 @@ if not st.session_state.authenticated:
             </div>
             """, unsafe_allow_html=True)
             
-            # 친구용 고속 엔진 코드
             st.code("""
 function doPost(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -124,15 +122,23 @@ function doGet(e) {
 }
             """, language="javascript")
             
+            # [수정] 대표님이 요청하신 '구글 권한 경고 무시(Advanced -> Allow)' 가이드 추가
             st.markdown("""
             <div class='guide-box'>
-            <b>3단계: URL 발급 및 입력</b><br>
+            <b>3단계: 웹 앱 배포 및 권한 승인 (중요!)</b><br>
             4. 우측 상단 <b>[배포] ➡️ [새 배포]</b> 클릭.<br>
             5. 유형을 <b>[웹 앱]</b>으로 선택.<br>
             6. 액세스 권한이 있는 사용자를 반드시 <b>[모든 사용자(Anyone)]</b>로 설정하고 <b>배포</b> 클릭!<br>
-            7. 발급된 <b>웹 앱 URL</b>을 복사하여 왼쪽 입력창에 넣으시면 끝입니다. 🎉
+            7. ⚠️ <b>"Google hasn’t verified this app" (액세스 승인)</b> 경고창이 뜨면 당황하지 마세요!<br>
+               &nbsp;&nbsp;&nbsp;↳ 좌측 하단 작은 글씨인 <b>[Advanced (고급)]</b> 클릭<br>
+               &nbsp;&nbsp;&nbsp;↳ 아래에 나타나는 <b>[Go to 프로젝트 이름 (unsafe) / 이동(안전하지 않음)]</b> 클릭<br>
+               &nbsp;&nbsp;&nbsp;↳ 화면 하단의 <b>[Allow (허용)]</b> 클릭<br>
+            8. 발급된 <b>웹 앱 URL</b>을 복사하여 왼쪽 입력창에 넣으시면 끝입니다. 🎉
             </div>
             """, unsafe_allow_html=True)
+            
+    # [수정] 하단 회색 버전 표기
+    st.markdown("<div style='text-align: left; color: #BDC3C7; font-size: 0.8em; margin-top: 50px;'>v1.41</div>", unsafe_allow_html=True)
     st.stop()
 
 # ==========================================
@@ -306,7 +312,12 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-st.title("💰 My Asset Hub (Private v1.41)")
+# [수정] 사이드바 맨 하단에 작고 옅은 회색 버전 표기 추가
+with st.sidebar:
+    st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.41</div>", unsafe_allow_html=True)
+
+# [수정] 메인 화면 타이틀에서 버전 제거
+st.title("💰 My Asset Hub")
 
 risk_group = {r: 0 for r in active_risks}; risk_group["고정(은행)"] = 0
 port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0} 
