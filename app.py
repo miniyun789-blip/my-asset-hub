@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 # ==========================================
 # 1. 앱 기본 설정 & 모바일 최적화 UI
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V21", layout="wide")
+st.set_page_config(page_title="My Asset Hub V22", layout="wide")
 
 st.markdown("""
     <style>
@@ -80,13 +80,11 @@ def verify_and_get_ticker(input_val):
     input_val = input_val.strip()
     upper_val = input_val.upper()
     
-    # 1. 코인 체크
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
     for key, val in coin_map.items():
         if key in upper_val: return val, val.replace("KRW-", "")
     if upper_val.startswith("KRW-"): return upper_val, upper_val.replace("KRW-", "")
     
-    # 2. 직접 티커(알파벳/숫자 6자리) 입력 체크
     if len(upper_val) == 6 and upper_val.isalnum():
         for suffix in [".KS", ".KQ"]:
             try:
@@ -98,14 +96,14 @@ def verify_and_get_ticker(input_val):
             return upper_val, fetch_company_name(upper_val)
     except: pass
 
-    # 3. [신규 로직] 네이버 금융 API로 한글 종목명 자동 검색
+    # [수정 완료] 한글 종목명 검색 파싱 에러 완벽 해결
     try:
         url = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
         res = requests.get(url, timeout=3).json()
         if res.get('items') and res['items'][0]:
-            best_match = res['items'][0][0] # 예: ['삼성전자', ['005930'], ...]
-            kor_name = best_match[0][0]
-            ticker_code = best_match[1][0]
+            best_match = res['items'][0][0] 
+            kor_name = best_match[0] # 문자열로 정상 추출
+            ticker_code = best_match[1] # 문자열로 정상 추출
             for suffix in [".KS", ".KQ"]:
                 try:
                     if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
@@ -169,7 +167,6 @@ if asset_input:
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
-    # [수정] 라벨을 통장이름으로 변경
     sav_name = st.text_input("통장이름")
     sav_monthly = st.number_input("월 납입액", min_value=0, step=10000, format="%d")
     sav_curr = st.number_input("현재 회차", min_value=1)
@@ -186,7 +183,8 @@ with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
 st.title("💰 My Asset Hub")
 today_str = datetime.now().strftime('%Y-%m-%d')
 
-port_group = {"국내 주식": 0, "해외 주식": 0, "가상화폐": 0}
+# [수정 완료] 자산군 순서 정렬을 위한 딕셔너리 순서 고정
+port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0} 
 risk_group = {"초고위험": 0, "위험": 0, "중립": 0, "안전": 0}
 stock_display = []
 total_buy = 0 
@@ -246,12 +244,20 @@ if grand_total > 0:
         history_df = pd.concat([history_df, pd.DataFrame([{"날짜": today_str, "총자산": grand_total}])], ignore_index=True)
     save_data(history_df.to_dict('records'), HISTORY_FILE)
 
+# [수정 완료] 목표 초과 달성 UI 적용
 target = st.session_state['config'].get('target_asset', 1000000000)
-rem_pct = max(100.0 - (grand_total/target*100), 0.0)
-status_color = "goal-green" if rem_pct == 0 else "goal-red"
+achieved_pct = (grand_total / target * 100) if target > 0 else 0
+
+if achieved_pct < 100:
+    rem_pct = 100.0 - achieved_pct
+    status_html = f"<span class='goal-red'>목표까지 {rem_pct:.1f}% 남았습니다! 🔥</span>"
+else:
+    excess_pct = achieved_pct - 100.0
+    status_html = f"<span class='goal-green'>🎉 목표를 {excess_pct:.1f}% 초과 달성하였습니다! 🎉</span>"
+
 st.markdown(f"### 🏆 목표 자산 ({target:,.0f}원) 현황")
-st.markdown(f"<span class='{status_color}'>목표까지 {rem_pct:.1f}% 남았습니다! {'🎉' if rem_pct==0 else '🔥'}</span>", unsafe_allow_html=True)
-st.progress(min(grand_total/target, 1.0))
+st.markdown(status_html, unsafe_allow_html=True)
+st.progress(min(achieved_pct / 100, 1.0))
 
 c1, c2, c3 = st.columns(3)
 c1.metric("총 자산", f"{grand_total:,.0f}원")
@@ -266,7 +272,8 @@ with tab1:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         st.subheader("⚖️ 포트폴리오 비중")
-        fig1 = go.Figure(data=[go.Pie(labels=list(port_group.keys())+['은행(안전)'], values=list(port_group.values())+[total_sav_val], hole=.4)])
+        # [수정 완료] sort=False로 설정하여 딕셔너리 입력 순서(가상화폐->해외->국내->은행)를 강제 고정
+        fig1 = go.Figure(data=[go.Pie(labels=list(port_group.keys())+['은행(안전)'], values=list(port_group.values())+[total_sav_val], hole=.4, sort=False, marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
         fig1.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
         fig1.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, 
                           legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
@@ -274,7 +281,8 @@ with tab1:
         
     with col_p2:
         st.subheader("🛡️ 리스크 다각화")
-        fig2 = go.Figure(data=[go.Pie(labels=list(risk_group.keys()), values=list(risk_group.values()), hole=.4, marker_colors=['#E74C3C','#F39C12','#3498DB','#2ECC71'])])
+        # [수정 완료] sort=False 추가하여 초고위험->위험->중립->안전 순서 고정
+        fig2 = go.Figure(data=[go.Pie(labels=list(risk_group.keys()), values=list(risk_group.values()), hole=.4, sort=False, marker_colors=['#E74C3C','#F39C12','#3498DB','#2ECC71'])])
         fig2.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
         fig2.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True,
                           legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
@@ -289,20 +297,22 @@ with tab1:
         
         if time_view == "일별":
             fig_line = px.area(plot_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
-            fig_line.update_xaxes(tickformat="%m.%d", tickangle=-45)
+            # [수정 완료] tickmode='array'로 실제 데이터가 있는 날짜만 x축에 출력하여 중복 방지
+            fig_line.update_xaxes(tickmode='array', tickvals=plot_df['날짜'], tickformat="%m.%d", tickangle=-45)
         elif time_view == "월별":
             plot_df['날짜'] = plot_df['날짜'].dt.to_period('M').dt.to_timestamp()
             plot_df = plot_df.groupby('날짜')['총자산'].last().reset_index()
             fig_line = px.area(plot_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
-            fig_line.update_xaxes(tickformat="%y.%m", tickangle=-45)
+            fig_line.update_xaxes(tickmode='array', tickvals=plot_df['날짜'], tickformat="%y.%m", tickangle=-45)
         elif time_view == "연별":
             plot_df['날짜'] = plot_df['날짜'].dt.to_period('Y').dt.to_timestamp()
             plot_df = plot_df.groupby('날짜')['총자산'].last().reset_index()
             fig_line = px.area(plot_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
-            fig_line.update_xaxes(tickformat="%Y", tickangle=0)
+            fig_line.update_xaxes(tickmode='array', tickvals=plot_df['날짜'], tickformat="%Y", tickangle=0)
             
-        fig_line.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, hovermode="x unified")
-        st.plotly_chart(fig_line, use_container_width=True)
+        # [수정 완료] 차트 터치(상호작용) 비활성화 및 툴팁 끄기
+        fig_line.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, hovermode=False, dragmode=False)
+        st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
 
 with tab2:
     st.subheader("📈 투자 자산 내역")
@@ -336,7 +346,6 @@ with tab2:
             exp_int = principal * (rate / 100) * multiplier
             st.markdown(f"**[{bank_type}] {sav.get('상품명', '이름없음')}** (연 **{rate}%**) | 원금: **{principal:,.0f}원** | 만기 시 예상 이자: **+ {exp_int:,.0f}원**")
             
-            # [수정] 만기 달성 체크 및 UI 에러(progress > 1.0) 방어
             c_month = sav.get('현재회차', 0)
             t_month = sav.get('총회차', 1)
             rem_m = t_month - c_month
@@ -424,11 +433,13 @@ with tab3:
                 d = row['차액']
                 p = row['현재가']
                 c = row['티커'].startswith("KRW-")
+                
+                # [수정 완료] 코인 가격이 0원일 때의 에러(ZeroDivisionError) 사전 방어
                 if d > 10000:
-                    s = f" (약 {d/p:,.2f}개)" if c else (f" (약 {int(d/p):,}주)" if p>0 else "")
+                    s = f" (약 {d/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(d/p):,}주)" if p > 0 else "")
                     return f"🟢 매수 (+{d:,.0f}원)", s
                 elif d < -10000:
-                    s = f" (약 {abs(d)/p:,.2f}개)" if c else (f" (약 {int(abs(d)/p):,}주)" if p>0 else "")
+                    s = f" (약 {abs(d)/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(abs(d)/p):,}주)" if p > 0 else "")
                     return f"🔴 매도 ({abs(d):,.0f}원)", s
                 return "유지", "-"
                 
