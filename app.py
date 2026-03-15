@@ -6,11 +6,12 @@ import yfinance as yf
 from datetime import datetime
 import os
 import requests
+from bs4 import BeautifulSoup
 
 # ==========================================
 # 1. 앱 기본 설정 & 모바일 최적화 UI
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V24", layout="wide")
+st.set_page_config(page_title="My Asset Hub V25", layout="wide")
 
 st.markdown("""
     <style>
@@ -42,11 +43,16 @@ if 'config' not in st.session_state:
     st.session_state['config'] = cfg[0] if cfg else {"target_asset": 1000000000}
 
 # ==========================================
-# 2. 데이터 수집 엔진 (야후 API 100% 안정화)
+# 2. 데이터 수집 엔진 (3중 우회 방어막 적용)
 # ==========================================
 @st.cache_data(ttl=600)
 def get_exchange_rate():
-    try: return yf.Ticker("USDKRW=X").history(period="1d")['Close'].iloc[-1]
+    try:
+        url = "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        return float(soup.select_one('.no_today .value').text.replace(',', ''))
     except: return 1350.0
 
 @st.cache_data(ttl=300)
@@ -67,38 +73,70 @@ def verify_and_get_ticker(input_val):
     input_val = input_val.strip()
     upper_val = input_val.upper()
     
-    # 1. 코인 검사
+    # 강력한 위장 헤더 (스트림릿 클라우드 차단 우회용)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Referer': 'https://finance.naver.com/'
+    }
+    
+    # 0. 코인 및 직접 티커 입력 검사
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
     for key, val in coin_map.items():
         if key in upper_val: return val, val.replace("KRW-", "")
     if upper_val.startswith("KRW-"): return upper_val, upper_val.replace("KRW-", "")
     
-    # 2. 확실한 6자리 티커 직접 입력 (한국주식)
     if len(upper_val) == 6 and upper_val.isalnum():
         for suffix in [".KS", ".KQ"]:
             try:
                 if not yf.Ticker(upper_val + suffix).history(period="1d").empty: 
                     return upper_val + suffix, yf.Ticker(upper_val + suffix).info.get('shortName', upper_val)
             except: pass
-
-    # 3. 미국주식 기본 티커 검사
     try:
         if not yf.Ticker(upper_val).history(period="1d").empty: 
             return upper_val, yf.Ticker(upper_val).info.get('shortName', upper_val)
     except: pass
 
-    # 4. [핵심 수정] 야후 파이낸스 글로벌 검색 API (클라우드 서버 차단 없음)
+    # 1. 1차 시도: 네이버 자동완성 API (가장 정확하고 빠름)
     try:
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={input_val}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=3).json()
-        if 'quotes' in res and len(res['quotes']) > 0:
-            for q in res['quotes']:
-                # 주식(EQUITY)이나 ETF만 필터링
+        url_ac = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
+        res_ac = requests.get(url_ac, headers=headers, timeout=5).json()
+        if res_ac.get('items') and len(res_ac['items'][0]) > 0:
+            kor_name = res_ac['items'][0][0][0][0]
+            ticker_code = res_ac['items'][0][0][1][0]
+            for suffix in [".KS", ".KQ"]:
+                try:
+                    if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
+                        return ticker_code + suffix, kor_name
+                except: pass
+    except: pass
+
+    # 2. 2차 시도: 네이버 검색 페이지 크롤링 (API 차단 시 우회)
+    try:
+        url_search = f"https://finance.naver.com/search/searchList.naver?query={input_val}"
+        res_search = requests.get(url_search, headers=headers, timeout=5)
+        soup = BeautifulSoup(res_search.text, 'html.parser')
+        first_row = soup.select_one('.tbl_search tbody tr')
+        if first_row:
+            a_tag = first_row.select_one('td.tit a')
+            if a_tag:
+                ticker_code = a_tag['href'].split('code=')[-1]
+                kor_name = a_tag.text.strip()
+                for suffix in [".KS", ".KQ"]:
+                    try:
+                        if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
+                            return ticker_code + suffix, kor_name
+                    except: pass
+    except: pass
+
+    # 3. 3차 시도: 야후 파이낸스 글로벌 검색 API (해외 주식 및 최후의 수단)
+    try:
+        url_yahoo = f"https://query2.finance.yahoo.com/v1/finance/search?q={input_val}"
+        res_yahoo = requests.get(url_yahoo, headers=headers, timeout=5).json()
+        if 'quotes' in res_yahoo and len(res_yahoo['quotes']) > 0:
+            for q in res_yahoo['quotes']:
                 if q.get('quoteType') in ['EQUITY', 'ETF']:
                     return q['symbol'], q.get('shortname', input_val)
-            # 필터링 안되면 검색된 첫 번째 결과 반환
-            return res['quotes'][0]['symbol'], res['quotes'][0].get('shortname', input_val)
+            return res_yahoo['quotes'][0]['symbol'], res_yahoo['quotes'][0].get('shortname', input_val)
     except: pass
     
     return None, None
@@ -122,9 +160,11 @@ with st.sidebar.expander("⚙️ 목표 자산 설정", expanded=False):
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
 asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, 카카오, AAPL")
+# [롤백 완료] 네이버 주식창 하이퍼링크 복구
+st.sidebar.markdown("[👉 종목코드 찾기 (네이버 주식창)](https://finance.naver.com/)", unsafe_allow_html=True)
 
 if asset_input:
-    with st.spinner("종목 검색 중..."):
+    with st.spinner("종목 검색 중 (최대 5초 소요)..."):
         valid_ticker, valid_name = verify_and_get_ticker(asset_input)
     if valid_ticker:
         st.sidebar.success(f"✅ {valid_name} ({valid_ticker})")
@@ -152,7 +192,7 @@ if asset_input:
             save_data(st.session_state['stocks'], STOCKS_FILE)
             st.rerun()
     else:
-        st.sidebar.error("⚠️ 검색 실패. 클라우드 통신 문제일 수 있으니 티커코드(예: 005930.KS)를 직접 입력해 보세요.")
+        st.sidebar.error("⚠️ 검색 실패. 일시적인 차단일 수 있으니 티커(예: 005930.KS)를 직접 입력해주세요.")
 
 with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
     bank_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
@@ -260,7 +300,7 @@ c3.metric("수익금", f"{grand_total-total_buy:,.0f}원", f"{(grand_total-total
 
 st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리 (순서 변경)", "⚖️ 리밸런싱"])
+tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리 (순서 변경)", "⚖️ 리밸런싱 (3-Step)"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
@@ -327,7 +367,6 @@ with tab2:
             cur_sym = "$" if item['해외'] and not item['티커'].startswith("KRW-") else "₩"
             st.caption(f"↳ 매수단가: **{item['매수평단가']:,.2f}{cur_sym}** | 수량: **{item['보유수량']:.2f}개**")
         
-        # [핵심 수정] 위아래 순서 변경 버튼 도입
         with c_up:
             if st.button("🔼", key=f"up_{idx}") and idx > 0:
                 st.session_state['stocks'][idx-1], st.session_state['stocks'][idx] = st.session_state['stocks'][idx], st.session_state['stocks'][idx-1]
@@ -370,7 +409,6 @@ with tab2:
                 st.caption(f"↳ 총 {t_month}개월 중 **{c_month}개월 차** (남음: **{rem_m}개월**)")
                 st.progress(min(1.0, max(0.0, c_month / t_month if t_month > 0 else 0)))
                 
-        # [핵심 수정] 은행 자산도 위아래 정렬 추가
         with c_up:
             if st.button("🔼", key=f"sup_{idx}") and idx > 0:
                 st.session_state['savings'][idx-1], st.session_state['savings'][idx] = st.session_state['savings'][idx], st.session_state['savings'][idx-1]
@@ -395,6 +433,7 @@ with tab2:
                 save_data(st.session_state['savings'], SAVINGS_FILE); st.rerun()
 
 with tab3:
+    # --- [Step 1: 그룹 설정] ---
     st.subheader("⚖️ 1단계: 그룹별 목표 설정")
     fixed_p = round(fixed_sav_val/grand_total*100, 1) if grand_total>0 else 0
     st.info(f"🔒 고정 자산(적금/청약) 비중: **{fixed_p}%**")
@@ -406,13 +445,17 @@ with tab3:
     t4 = rcols[3].number_input("4.안전(유동)", value=0.0, step=1.0)
     t5 = rcols[4].number_input("5.안전(고정)", value=float(fixed_p), disabled=True)
     
-    # [핵심 수정] 100% 합계 인지 오류 해결 (안내 메시지 명확화)
     total_tgt_sum = round(t1 + t2 + t3 + t4 + float(fixed_p), 1)
     
-    if abs(total_tgt_sum - 100.0) < 0.2:
-        st.success(f"✅ 비중 합계 100% 일치 (현재 {total_tgt_sum}%)")
+    if abs(total_tgt_sum - 100.0) >= 0.2:
+        st.warning(f"⚠️ 현재 1단계 합계: **{total_tgt_sum}%** 입니다. 정확히 100%가 되어야 2단계 세부 조율이 활성화됩니다.")
+    else:
+        st.success(f"✅ 1단계 완료: 비중 합계 100% 일치")
         st.divider()
+        
+        # --- [Step 2: 종목 세부 조율] ---
         st.subheader("🔬 2단계: 종목별 세부 조율")
+        st.caption("1단계에서 설정한 자산군 비중 내에서, 각 종목의 세부 목표 비중을 조절하세요.")
         
         r_map = {"초고위험": "1. 초고위험", "위험": "2. 위험", "중립": "3. 중립", "안전": "4. 안전(유동)"}
         re_items = []
@@ -445,35 +488,64 @@ with tab3:
             try: styled_rdf = rdf.drop(columns=['현재가', '티커']).style.map(color_risk, subset=['자산군'])
             except: styled_rdf = rdf.drop(columns=['현재가', '티커']).style.applymap(color_risk, subset=['자산군'])
 
+            # 2단계 에디터 출력
             edited = st.data_editor(styled_rdf, use_container_width=True, hide_index=True,
                                    column_config={"💡 목표(%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=0.1)})
             
-            edited['목표금액'] = (grand_total * (edited['💡 목표(%)'] / 100)).astype(int)
-            edited['차액'] = edited['목표금액'] - edited['현재금액']
-            edited['현재가'] = rdf['현재가']
-            edited['티커'] = rdf['티커']
+            # 2단계 검증 로직 (1단계 비중과 일치하는지)
+            is_step2_valid = True
+            validation_msgs = []
+            for grp, grp_tgt in target_map.items():
+                if grp == "5. 안전(고정)": continue
+                grp_sum = edited[edited['자산군'] == grp]['💡 목표(%)'].sum()
+                diff = round(grp_tgt - grp_sum, 1)
+                if abs(diff) > 0.1: # 소수점 오차 방어
+                    is_step2_valid = False
+                    validation_msgs.append(f"[{grp}] 1단계 목표 {grp_tgt}% 🆚 현재 조율합계 {grp_sum:.1f}% ({abs(diff):.1f}% {'부족' if diff > 0 else '초과'})")
             
-            def get_action(row):
-                if row['자산군'] == "5. 안전(고정)": return "🔒 유지", "-"
-                d = row['차액']
-                p = row['현재가']
-                c = row['티커'].startswith("KRW-")
+            if not is_step2_valid:
+                st.error("⚠️ 아래 자산군의 2단계 비중 합계를 1단계 목표와 똑같이 맞춰주세요.")
+                for msg in validation_msgs:
+                    st.write(f" - {msg}")
+            else:
+                st.success("✅ 자산군별 조율이 1단계 목표 비중과 완벽히 일치합니다.")
                 
-                if d > 10000:
-                    s = f" (약 {d/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(d/p):,}주)" if p > 0 else "")
-                    return f"🟢 매수 (+{d:,.0f}원)", s
-                elif d < -10000:
-                    s = f" (약 {abs(d)/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(abs(d)/p):,}주)" if p > 0 else "")
-                    return f"🔴 매도 ({abs(d):,.0f}원)", s
-                return "유지", "-"
-                
-            edited[['액션', '수량가이드']] = edited.apply(get_action, axis=1, result_type='expand')
-            final_df = edited[['자산군', '종목명', '현재금액', '목표금액', '액션', '수량가이드']]
+            # [핵심 수정] 3단계 버튼 도입
+            if st.button("🚀 3단계: 최종 액션플랜 생성 및 적용", use_container_width=True, type="primary"):
+                if is_step2_valid:
+                    st.session_state['rebal_applied'] = True
+                    st.session_state['edited_rebal_df'] = edited.copy()
+                else:
+                    st.error("2단계 비중을 모두 맞춘 후 버튼을 눌러주세요.")
             
-            try: f_style = final_df.style.map(color_risk, subset=['자산군']).format({"현재금액": "{:,.0f}", "목표금액": "{:,.0f}"})
-            except: f_style = final_df.style.applymap(color_risk, subset=['자산군']).format({"현재금액": "{:,.0f}", "목표금액": "{:,.0f}"})
-            st.dataframe(f_style, hide_index=True, use_container_width=True)
-            st.info("💡 자산군 열을 클릭하면 위험도 순으로 자동 정렬됩니다.")
-    else:
-        # [핵심 수정] 100%가 아닐 때 멈추는 것이 아니라 확실하게 사유를 피드백
-        st.warning(f"⚠️ 현재 1단계 설정 합계가 **{total_tgt_sum}%** 입니다. 정확히 100%가 되어야 2단계로 넘어갈 수 있습니다.")
+            # --- [Step 3: 액션 플랜] ---
+            if st.session_state.get('rebal_applied', False) and 'edited_rebal_df' in st.session_state:
+                st.divider()
+                st.subheader("🎯 3단계: 최종 리밸런싱 액션 플랜")
+                final_edited = st.session_state['edited_rebal_df']
+                
+                final_edited['목표금액'] = (grand_total * (final_edited['💡 목표(%)'] / 100)).astype(int)
+                final_edited['차액'] = final_edited['목표금액'] - final_edited['현재금액']
+                final_edited['현재가'] = rdf['현재가']
+                final_edited['티커'] = rdf['티커']
+                
+                def get_action(row):
+                    if row['자산군'] == "5. 안전(고정)": return "🔒 유지", "-"
+                    d = row['차액']
+                    p = row['현재가']
+                    c = row['티커'].startswith("KRW-")
+                    
+                    if d > 10000:
+                        s = f" (약 {d/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(d/p):,}주)" if p > 0 else "")
+                        return f"🟢 매수 (+{d:,.0f}원)", s
+                    elif d < -10000:
+                        s = f" (약 {abs(d)/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(abs(d)/p):,}주)" if p > 0 else "")
+                        return f"🔴 매도 ({abs(d):,.0f}원)", s
+                    return "유지", "-"
+                    
+                final_edited[['액션', '수량가이드']] = final_edited.apply(get_action, axis=1, result_type='expand')
+                display_df = final_edited[['자산군', '종목명', '현재금액', '목표금액', '액션', '수량가이드']]
+                
+                try: f_style = display_df.style.map(color_risk, subset=['자산군']).format({"현재금액": "{:,.0f}", "목표금액": "{:,.0f}"})
+                except: f_style = display_df.style.applymap(color_risk, subset=['자산군']).format({"현재금액": "{:,.0f}", "목표금액": "{:,.0f}"})
+                st.dataframe(f_style, hide_index=True, use_container_width=True)
