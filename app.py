@@ -13,7 +13,7 @@ import json
 # ==========================================
 # [중요] 1단계에서 새로 만든 웹 앱 URL을 여기에 넣으세요
 # ==========================================
-API_URL = https://script.google.com/macros/s/AKfycbx6-L0Rl4GlpZloBZ79M9mqHYSnSTOCaaHjVnhF5mYKcPF42QaShH0A54vD6WUz4O45/exec
+API_URL = "https://script.google.com/macros/s/AKfycbx6-L0Rl4GlpZloBZ79M9mqHYSnSTOCaaHjVnhF5mYKcPF42QaShH0A54vD6WUz4O45/exec"
 
 # ==========================================
 # 1. 앱 기본 설정 & UI 스타일링
