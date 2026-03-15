@@ -1,2 +1,0 @@
-cd desktop
-python -m streamlit run app.py
