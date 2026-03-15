@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 # ==========================================
 # 1. 앱 기본 설정 & 모바일 최적화 UI
 # ==========================================
-st.set_page_config(page_title="My Asset Hub V22", layout="wide")
+st.set_page_config(page_title="My Asset Hub V23", layout="wide")
 
 st.markdown("""
     <style>
@@ -79,6 +79,7 @@ def fetch_company_name(ticker):
 def verify_and_get_ticker(input_val):
     input_val = input_val.strip()
     upper_val = input_val.upper()
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
     coin_map = {"비트코인": "KRW-BTC", "BTC": "KRW-BTC", "이더리움": "KRW-ETH", "ETH": "KRW-ETH"}
     for key, val in coin_map.items():
@@ -96,19 +97,37 @@ def verify_and_get_ticker(input_val):
             return upper_val, fetch_company_name(upper_val)
     except: pass
 
-    # [수정 완료] 한글 종목명 검색 파싱 에러 완벽 해결
+    # [수정 완료] 1순위: 네이버 자동완성 API 파싱 에러 수정
     try:
-        url = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
-        res = requests.get(url, timeout=3).json()
-        if res.get('items') and res['items'][0]:
-            best_match = res['items'][0][0] 
-            kor_name = best_match[0] # 문자열로 정상 추출
-            ticker_code = best_match[1] # 문자열로 정상 추출
+        url_ac = f"https://ac.finance.naver.com/ac?q={input_val}&q_enc=utf-8&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&req=1"
+        res_ac = requests.get(url_ac, headers=headers, timeout=3).json()
+        if res_ac.get('items') and len(res_ac['items'][0]) > 0:
+            best_match = res_ac['items'][0][0]
+            kor_name = best_match[0][0] # 문자열 정확히 추출
+            ticker_code = best_match[1][0] # 문자열 정확히 추출
             for suffix in [".KS", ".KQ"]:
                 try:
                     if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
                         return ticker_code + suffix, kor_name
                 except: pass
+    except: pass
+
+    # [수정 완료] 2순위: 네이버 검색 페이지 직접 스크래핑 (API 차단 대비용 백업)
+    try:
+        url_search = f"https://finance.naver.com/search/searchList.naver?query={input_val}"
+        res_search = requests.get(url_search, headers=headers, timeout=3)
+        soup = BeautifulSoup(res_search.text, 'html.parser')
+        first_row = soup.select_one('.tbl_search tbody tr')
+        if first_row:
+            a_tag = first_row.select_one('td.tit a')
+            if a_tag:
+                ticker_code = a_tag['href'].split('code=')[-1]
+                kor_name = a_tag.text.strip()
+                for suffix in [".KS", ".KQ"]:
+                    try:
+                        if not yf.Ticker(ticker_code + suffix).history(period="1d").empty:
+                            return ticker_code + suffix, kor_name
+                    except: pass
     except: pass
     
     return None, None
@@ -183,7 +202,6 @@ with st.sidebar.expander("🏦 은행 자산 추가", expanded=False):
 st.title("💰 My Asset Hub")
 today_str = datetime.now().strftime('%Y-%m-%d')
 
-# [수정 완료] 자산군 순서 정렬을 위한 딕셔너리 순서 고정
 port_group = {"가상화폐": 0, "해외 주식": 0, "국내 주식": 0} 
 risk_group = {"초고위험": 0, "위험": 0, "중립": 0, "안전": 0}
 stock_display = []
@@ -224,13 +242,20 @@ for idx, stock in enumerate(st.session_state['stocks']):
 
 total_sav_val = 0
 fixed_sav_val = 0
+total_bank_principal = 0 # 은행 원금 총합용
+
 for sav in st.session_state['savings']:
     bank_type = sav.get('종류', '적금')
     sav_monthly = sav.get('월납입액', 0)
     sav_curr = sav.get('현재회차', 1)
+    sav_tot = sav.get('총회차', 1)
+    
     amt = sav_monthly * sav_curr
+    principal = sav_monthly * sav_tot
+    
     total_sav_val += amt
     total_buy += amt
+    total_bank_principal += principal
     if bank_type in ["적금", "주택청약"]: fixed_sav_val += amt
 
 grand_total = sum(port_group.values()) + total_sav_val
@@ -244,7 +269,6 @@ if grand_total > 0:
         history_df = pd.concat([history_df, pd.DataFrame([{"날짜": today_str, "총자산": grand_total}])], ignore_index=True)
     save_data(history_df.to_dict('records'), HISTORY_FILE)
 
-# [수정 완료] 목표 초과 달성 UI 적용
 target = st.session_state['config'].get('target_asset', 1000000000)
 achieved_pct = (grand_total / target * 100) if target > 0 else 0
 
@@ -272,8 +296,10 @@ with tab1:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         st.subheader("⚖️ 포트폴리오 비중")
-        # [수정 완료] sort=False로 설정하여 딕셔너리 입력 순서(가상화폐->해외->국내->은행)를 강제 고정
-        fig1 = go.Figure(data=[go.Pie(labels=list(port_group.keys())+['은행(안전)'], values=list(port_group.values())+[total_sav_val], hole=.4, sort=False, marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
+        # [수정 완료] 차트 배열 순서 강제 고정 (가상화폐 -> 해외주식 -> 국내주식 -> 은행)
+        port_labels = ["가상화폐", "해외 주식", "국내 주식", "은행(안전)"]
+        port_vals = [port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val]
+        fig1 = go.Figure(data=[go.Pie(labels=port_labels, values=port_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
         fig1.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
         fig1.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True, 
                           legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
@@ -281,8 +307,10 @@ with tab1:
         
     with col_p2:
         st.subheader("🛡️ 리스크 다각화")
-        # [수정 완료] sort=False 추가하여 초고위험->위험->중립->안전 순서 고정
-        fig2 = go.Figure(data=[go.Pie(labels=list(risk_group.keys()), values=list(risk_group.values()), hole=.4, sort=False, marker_colors=['#E74C3C','#F39C12','#3498DB','#2ECC71'])])
+        # [수정 완료] 차트 배열 순서 강제 고정 (초고위험 -> 위험 -> 중립 -> 안전)
+        risk_labels = ["초고위험", "위험", "중립", "안전"]
+        risk_vals = [risk_group["초고위험"], risk_group["위험"], risk_group["중립"], risk_group["안전"]]
+        fig2 = go.Figure(data=[go.Pie(labels=risk_labels, values=risk_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#E74C3C','#F39C12','#3498DB','#2ECC71'])])
         fig2.update_traces(textposition='inside', textinfo='percent', textfont_size=16) 
         fig2.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, showlegend=True,
                           legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
@@ -292,13 +320,21 @@ with tab1:
     st.subheader("🚀 자산 성장 타임라인")
     if not history_df.empty:
         time_view = st.radio("보기 옵션", ["일별", "월별", "연별"], horizontal=True)
-        history_df['날짜'] = pd.to_datetime(history_df['날짜'])
-        plot_df = history_df.copy()
         
+        # [수정 완료] 매일매일 빈 날짜 채워주기 로직 (Forward Fill)
+        history_df['날짜'] = pd.to_datetime(history_df['날짜'])
+        min_date = history_df['날짜'].min()
+        max_date = pd.to_datetime(today_str)
+        if pd.notnull(min_date):
+            idx_dates = pd.date_range(min_date, max_date)
+            plot_df = history_df.set_index('날짜').reindex(idx_dates).ffill().reset_index()
+            plot_df.rename(columns={'index': '날짜'}, inplace=True)
+        else:
+            plot_df = history_df.copy()
+            
         if time_view == "일별":
             fig_line = px.area(plot_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
-            # [수정 완료] tickmode='array'로 실제 데이터가 있는 날짜만 x축에 출력하여 중복 방지
-            fig_line.update_xaxes(tickmode='array', tickvals=plot_df['날짜'], tickformat="%m.%d", tickangle=-45)
+            fig_line.update_xaxes(tickformat="%m.%d", tickangle=-45)
         elif time_view == "월별":
             plot_df['날짜'] = plot_df['날짜'].dt.to_period('M').dt.to_timestamp()
             plot_df = plot_df.groupby('날짜')['총자산'].last().reset_index()
@@ -310,12 +346,15 @@ with tab1:
             fig_line = px.area(plot_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
             fig_line.update_xaxes(tickmode='array', tickvals=plot_df['날짜'], tickformat="%Y", tickangle=0)
             
-        # [수정 완료] 차트 터치(상호작용) 비활성화 및 툴팁 끄기
         fig_line.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=300, hovermode=False, dragmode=False)
         st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
 
 with tab2:
-    st.subheader("📈 투자 자산 내역")
+    # [수정 완료] 헤더에 총 매수금액 및 총 평가액 표기
+    total_stock_buy = sum(item['매수'] for item in stock_display)
+    total_stock_eval = sum(item['평가'] for item in stock_display)
+    st.subheader(f"📈 투자 자산 내역 (총 매수: {total_stock_buy:,.0f}원 | 총 평가: {total_stock_eval:,.0f}원)")
+    
     for item in stock_display:
         c_i, c_e, c_d = st.columns([5, 1, 1])
         with c_i:
@@ -335,7 +374,9 @@ with tab2:
                 save_data(st.session_state['stocks'], STOCKS_FILE); st.rerun()
                 
     st.divider()
-    st.subheader("🏦 은행 자산 내역")
+    # [수정 완료] 헤더에 총 은행 원금 표기
+    st.subheader(f"🏦 은행 자산 내역 (총 원금: {total_bank_principal:,.0f}원)")
+    
     for idx, sav in enumerate(st.session_state['savings']):
         c_i, c_e, c_d = st.columns([5, 1, 1])
         with c_i:
@@ -433,8 +474,6 @@ with tab3:
                 d = row['차액']
                 p = row['현재가']
                 c = row['티커'].startswith("KRW-")
-                
-                # [수정 완료] 코인 가격이 0원일 때의 에러(ZeroDivisionError) 사전 방어
                 if d > 10000:
                     s = f" (약 {d/p:,.2f}개)" if (c and p > 0) else (f" (약 {int(d/p):,}주)" if p > 0 else "")
                     return f"🟢 매수 (+{d:,.0f}원)", s
