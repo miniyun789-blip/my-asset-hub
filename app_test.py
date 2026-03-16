@@ -336,7 +336,7 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.47 (Hotfix)</div>", unsafe_allow_html=True)
+with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.47 (Completed)</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub (Test Server)")
 
@@ -423,10 +423,10 @@ with tab1:
     st.divider()
     st.subheader("🚀 자산 성장 타임라인")
     
-    # [핫픽스] errors='coerce'를 추가하여 잘못된 날짜 형식으로 인한 앱 크래시 방지
+    # [에러 해결 및 복구] 이름 충돌 방지 로직 (reset_index(drop=True))
     if not history_df.empty and len(history_df) > 0:
         history_df['날짜'] = pd.to_datetime(history_df['날짜'], errors='coerce')
-        history_df = history_df.dropna(subset=['날짜']) # 에러난 날짜는 차트에서 제거
+        history_df = history_df.dropna(subset=['날짜'])
         history_df = history_df.sort_values('날짜')
         
         tab_d, tab_m, tab_y = st.tabs(["일별", "월별", "연별"])
@@ -435,15 +435,14 @@ with tab1:
             fig_d.update_layout(height=300, margin=dict(t=10, b=10))
             st.plotly_chart(fig_d, use_container_width=True, config={'staticPlot': True})
         with tab_m:
-            df_m = history_df.groupby(history_df['날짜'].dt.to_period('M')).last().reset_index()
-            df_m['날짜'] = df_m['날짜'].dt.to_timestamp()
+            # 이름표 충돌 방지를 위해 drop=True로 인덱스 삭제
+            df_m = history_df.groupby(history_df['날짜'].dt.to_period('M')).last().reset_index(drop=True)
             if len(df_m) > 0:
                 fig_m = px.area(df_m, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2ECC71'])
                 fig_m.update_layout(height=300, margin=dict(t=10, b=10))
                 st.plotly_chart(fig_m, use_container_width=True, config={'staticPlot': True})
         with tab_y:
-            df_y = history_df.groupby(history_df['날짜'].dt.to_period('Y')).last().reset_index()
-            df_y['날짜'] = df_y['날짜'].dt.to_timestamp()
+            df_y = history_df.groupby(history_df['날짜'].dt.to_period('Y')).last().reset_index(drop=True)
             if len(df_y) > 0:
                 fig_y = px.area(df_y, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#F39C12'])
                 fig_y.update_layout(height=300, margin=dict(t=10, b=10))
