@@ -11,7 +11,7 @@ import json
 import threading
 import concurrent.futures
 
-# [신규] 쿠키 매니저 라이브러리 (자동 로그인용)
+# [자동 로그인 쿠키 매니저]
 try:
     import extra_streamlit_components as stx
     HAS_STX = True
@@ -26,12 +26,11 @@ SECRET_PASSCODE = "SM2026"
 # ==========================================
 # 1. 앱 기본 설정
 # ==========================================
-st.set_page_config(page_title="My Asset Hub (v1.45)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="My Asset Hub (v1.46)", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
 # 2. 입장 및 인증 시스템 (쿠키 & 상태 관리)
 # ==========================================
-# 쿠키 매니저 실행
 cookie_manager = stx.CookieManager() if HAS_STX else None
 
 query_params = st.query_params
@@ -40,7 +39,6 @@ if 'passcode' not in st.session_state: st.session_state.passcode = query_params.
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'show_guide' not in st.session_state: st.session_state.show_guide = False
 
-# [핵심 로직] 브라우저 쿠키(기억)가 남아있으면 자동 패스!
 if HAS_STX:
     saved_url = cookie_manager.get(cookie="my_api_url")
     saved_pass = cookie_manager.get(cookie="my_passcode")
@@ -54,12 +52,9 @@ def login():
         st.session_state.passcode = st.session_state.temp_passcode
         st.session_state.api_url = st.session_state.temp_api_url
         st.session_state.authenticated = True
-        
-        # [신규] 로그인 성공 시 브라우저에 1년간 기억(쿠키) 심기
         if HAS_STX:
             cookie_manager.set("my_api_url", st.session_state.api_url, max_age=31536000)
             cookie_manager.set("my_passcode", st.session_state.passcode, max_age=31536000)
-            
         st.query_params["passcode"] = st.session_state.passcode
         st.query_params["api_url"] = st.session_state.api_url
     else:
@@ -71,7 +66,7 @@ if st.session_state.passcode == SECRET_PASSCODE and st.session_state.api_url.sta
     st.session_state.authenticated = True
 
 # ------------------------------------------
-# 🛑 미인증 사용자 화면 (다크 테마 라운지)
+# 🛑 미인증 사용자 화면
 # ------------------------------------------
 if not st.session_state.authenticated:
     st.markdown("""
@@ -94,9 +89,6 @@ if not st.session_state.authenticated:
     if not st.session_state.show_guide:
         st.markdown("<h1 style='text-align:center; font-size:2.5rem; margin-bottom:5px; font-weight:800; letter-spacing: -1px;'>Sign in</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center; color:#8b949e; margin-bottom:40px; font-size:1rem;'>My Asset Hub Private Lounge</p>", unsafe_allow_html=True)
-        
-        if not HAS_STX: st.warning("⚠️ 자동 로그인(쿠키) 기능이 비활성화되어 있습니다. 깃허브 requirements.txt를 확인해 주세요.")
-        
         st.text_input("URL ID", key="temp_api_url", value=st.session_state.api_url, placeholder="https://script.google.com/...")
         st.text_input("Private password", type="password", key="temp_passcode", value=st.session_state.passcode, placeholder="초대 코드를 입력하세요")
         st.markdown("<br>", unsafe_allow_html=True)
@@ -127,7 +119,18 @@ if not st.session_state.authenticated:
   }
   return ContentService.createTextOutput("Success");
 }
-function doGet(e) { ... (생략) ... }</code></pre>
+function doGet(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(e.parameter.sheetName);
+  if (!sheet) return ContentService.createTextOutput("[]").setMimeType(ContentService.MimeType.JSON);
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return ContentService.createTextOutput("[]").setMimeType(ContentService.MimeType.JSON);
+  var headers = values[0];
+  var jsonArray = values.slice(1).map(function(row) {
+    var obj = {}; headers.forEach(function(h, i) { obj[h] = row[i]; }); return obj;
+  });
+  return ContentService.createTextOutput(JSON.stringify(jsonArray)).setMimeType(ContentService.MimeType.JSON);
+}</code></pre>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("<div class='guide-card'><h4 style='color:#58a6ff; margin-top:0;'>STEP 3: 배포 및 권한 승인</h4>4. 우측 상단 <b>[배포] ➡️ [새 배포]</b> 클릭<br>5. 설정 후 배포!<br><br><span style='color:#ff7b72;'>⚠️ <b>\"Google hasn’t verified this app\"</b> 해결:</span><br>&nbsp;&nbsp;↳ <b>[Advanced (고급)]</b> ➡️ <b>[Go to 프로젝트]</b> ➡️ <b>[Allow (허용)]</b><br>6. 발급된 <b>웹 앱 URL</b>을 복사하여 로그인 화면에 붙여넣으세요!</div>", unsafe_allow_html=True)
@@ -135,7 +138,7 @@ function doGet(e) { ... (생략) ... }</code></pre>
     st.stop()
 
 # ==========================================
-# 🟢 메인 자산 관리 앱 로직 (v1.45)
+# 🟢 메인 자산 관리 앱 로직 (v1.46)
 # ==========================================
 st.markdown("""
     <style>
@@ -144,6 +147,7 @@ st.markdown("""
     .goal-red { color: #E74C3C; font-weight: 900; font-size: 1.4rem; }
     .goal-green { color: #2ECC71; font-weight: 900; font-size: 1.4rem; }
     .green-text { color: #2ECC71; font-size: 0.95em; margin-bottom: 10px; font-weight: 500; }
+    .info-card { background-color: #F8FAFC; padding: 20px; border-radius: 10px; border-left: 5px solid #3B82F6; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -198,7 +202,6 @@ def load_market_data():
             if 'Symbol' in df.columns: df = df.rename(columns={'Symbol':'Code'})
             return df[['Code', 'Name', '시장']]
         except: return pd.DataFrame()
-    
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         results = executor.map(fetch_mkt, markets)
         for res in results:
@@ -253,7 +256,6 @@ with st.sidebar:
                 if save_all_to_cloud(): st.toast("✅ 동기화 성공!")
                 else: st.error("❌ 연결 실패")
     
-    # [수정] 로그아웃 시 브라우저 쿠키(기억)도 함께 삭제
     if st.button("🚪 다른 금고로 로그인", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.api_url = ""
@@ -324,8 +326,8 @@ with st.sidebar.expander("⚙️ 리스크 분류 관리"):
 with st.sidebar.expander("🏦 은행 자산 추가"):
     b_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
     b_name = st.text_input("통장이름")
-    raw_m = st.text_input("월 납입액 (원)", value="1000000")
-    b_curr = st.number_input("현재 회차", min_value=1)
+    raw_m = st.text_input("월 납입액/총액 (원)", value="1000000")
+    b_curr = st.number_input("현재 회차 (예금/파킹통장은 1)", min_value=1)
     b_total = st.number_input("총 만기 회차", min_value=1)
     b_rate = st.number_input("연 이율 (%)", min_value=0.0, step=0.1, value=3.0)
     if st.button("은행 자산 저장"):
@@ -334,7 +336,7 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.45 (Auto-Login)</div>", unsafe_allow_html=True)
+with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.46 (Integrity)</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub (Test Server)")
 
@@ -363,16 +365,22 @@ for idx, s in enumerate(st.session_state['stocks']):
     profit = (eval_amt - buy_amt) / buy_amt * 100 if buy_amt > 0 else 0
     stock_disp.append({"ID": idx, "종목명": s.get('종목명'), "티커": ticker, "매수": buy_amt, "평가": eval_amt, "수익률": profit, "리스크": risk_cat, "현재가": curr, "해외": is_foreign, "매수평단가": buy_p, "보유수량": qty})
 
+# [수정 3] 은행 자산 리스크 분리 (예금/파킹통장 -> 안전)
 total_sav_val = 0; total_bank_principal = 0; fixed_sav_val = 0
 for sav in st.session_state['savings']:
     m_val = int(sav.get('월납입액', 0)); c_val = int(sav.get('현재회차', 0)); t_val = int(sav.get('총회차', 1))
     amt = m_val * c_val
     total_sav_val += amt; total_buy += amt; total_bank_principal += (m_val * t_val)
-    if sav.get('종류') in ["적금", "주택청약"]: fixed_sav_val += amt
-risk_group["고정(은행)"] += total_sav_val
+    
+    if sav.get('종류') in ["예금", "파킹통장"]:
+        risk_group["안전"] = risk_group.get("안전", 0) + amt
+    else: # 적금, 주택청약
+        fixed_sav_val += amt
+        risk_group["고정(은행)"] += amt
 
 grand_total = sum(port_group.values()) + total_sav_val
 
+# [수정 1] 역사적 데이터(History) 및 타임라인 로직 복구
 history_data = load_cloud_data('history')
 history_df = pd.DataFrame(history_data) if history_data else pd.DataFrame(columns=["날짜", "총자산"])
 if grand_total > 0:
@@ -413,11 +421,40 @@ with tab1:
         fig2 = go.Figure(data=[go.Pie(labels=ordered_keys, values=ordered_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#E74C3C', '#F39C12', '#3498DB', '#2ECC71', '#34495E', '#9B59B6', '#1ABC9C'])])
         fig2.update_layout(title="리스크 다각화", height=320, margin=dict(t=40, b=10))
         st.plotly_chart(fig2, use_container_width=True)
-    if not history_df.empty:
+    
+    # [수정 1 & 2] 타임라인 복구 및 자동 기록 가이드 추가
+    st.divider()
+    col_t1, col_t2 = st.columns([3, 1])
+    with col_t1:
         st.subheader("🚀 자산 성장 타임라인")
+    with col_t2:
+        if st.button("💡 매일 자동 기록 가이드 보기"):
+            st.session_state['show_history_guide'] = not st.session_state.get('show_history_guide', False)
+            
+    if st.session_state.get('show_history_guide', False):
+        st.markdown("""
+        <div class="info-card">
+            <h4 style="margin-top:0; color:#3B82F6;">⏱️ 매일 새벽 3시, 내 자산 자동 기록하기</h4>
+            <p style="font-size:0.95em; color:#334155; line-height:1.6;">
+            앱에 접속하지 않아도 매일 자산 변동이 차트에 기록되게 하려면 <b>'구글 트리거'</b> 설정이 필요합니다.<br>
+            1. 구글 시트 상단 메뉴에서 <b>[확장 프로그램] ➡️ [Apps Script]</b>를 클릭합니다.<br>
+            2. 왼쪽 메뉴에서 시계 모양 아이콘 <b>[트리거]</b>를 클릭합니다.<br>
+            3. 우측 하단 <b>[트리거 추가]</b> 파란색 버튼을 누릅니다.<br>
+            4. 설정창에서 아래와 같이 맞추고 [저장]을 누릅니다.<br>
+               &nbsp;&nbsp;↳ 실행할 함수: <b><code>doPost</code></b> (주의: doGet이 아님)<br>
+               &nbsp;&nbsp;↳ 이벤트 소스: <b>시간 기반</b><br>
+               &nbsp;&nbsp;↳ 트리거 기반 시간 유형: <b>일일 타이머</b><br>
+               &nbsp;&nbsp;↳ 시간대: <b>오전 3시 ~ 4시</b>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    if not history_df.empty and len(history_df) > 1:
         fig_line = px.area(history_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
         fig_line.update_layout(height=300, margin=dict(t=10, b=10))
         st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
+    else:
+        st.info("📊 타임라인을 그리기 위한 데이터가 아직 충분하지 않습니다. (최소 2일 이상의 기록 필요)")
 
 with tab2:
     st.subheader(f"📈 투자 자산 내역 (총 평가: {sum(x['평가'] for x in stock_disp):,.0f}원)")
@@ -456,7 +493,19 @@ with tab2:
                 st.session_state['savings'][i].update({'월납입액': new_m, '현재회차': new_c}); sort_and_save(); st.rerun()
 
 with tab3:
-    st.subheader("⚖️ 1단계: 비중 설정")
+    # [수정 4] 자산 배분 및 리밸런싱 교육용 UI 추가
+    st.markdown("""
+    <div class="info-card">
+        <h4 style="margin-top:0; color:#3B82F6;">🧭 왜 자산 배분과 리밸런싱을 해야 할까요?</h4>
+        <p style="font-size:0.95em; color:#334155; line-height:1.6;">
+        <b>1. 완벽한 방어막 (리스크 헷지):</b> 주식 시장이 폭락할 때 안전 자산(예금, 파킹통장 등)이 전체 계좌의 손실을 방어합니다.<br>
+        <b>2. 기계적인 수익 창출:</b> 가격이 올라 비중이 커진 자산을 팔고, 저렴해진 자산을 사들이는 '리밸런싱'을 통해 인간의 감정(공포와 탐욕)을 배제하고 <b>강제적인 '저점 매수, 고점 매도'</b>를 실행할 수 있습니다.
+        </p>
+        <a href="https://www.youtube.com/results?search_query=자산배분+리밸런싱" target="_blank" style="color:#2563EB; text-decoration:none; font-weight:bold;">🔗 자산배분과 리밸런싱의 마법 (유튜브 영상 찾아보기)</a>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.subheader("⚖️ 1단계: 목표 비중 설정")
     fixed_p = round(fixed_sav_val / grand_total * 100, 1) if grand_total > 0 else 0
     cols = st.columns(len(active_risks) + 1)
     tgt_w = {}
@@ -467,8 +516,14 @@ with tab3:
         st.success(f"✅ 100% 일치 (현재 {total_input}%)")
         st.divider(); st.subheader("🔬 2단계: 세부 조율")
         re_items = [{"자산군": s['리스크'], "종목명": s['종목명'], "현재금액": int(s['평가']), "현재가": s['현재가']} for s in stock_disp]
+        
+        # [수정 3] 리밸런싱 목록에도 예금/파킹통장은 '안전'으로 분류
         for sv in st.session_state['savings']:
-            re_items.append({"자산군": "고정(은행)" if sv.get('종류') in ["적금", "주택청약"] else active_risks[-1], "종목명": sv.get('상품명'), "현재금액": int(sv.get('월납입액', 0)) * int(sv.get('현재회차', 0)), "현재가": 0})
+            if sv.get('종류') in ["예금", "파킹통장"]:
+                re_items.append({"자산군": "안전", "종목명": sv.get('상품명'), "현재금액": int(sv.get('월납입액', 0)) * int(sv.get('현재회차', 1)), "현재가": 0})
+            else:
+                re_items.append({"자산군": "고정(은행)" if sv.get('종류') in ["적금", "주택청약"] else active_risks[-1], "종목명": sv.get('상품명'), "현재금액": int(sv.get('월납입액', 0)) * int(sv.get('현재회차', 0)), "현재가": 0})
+        
         existing_grps = set(x['자산군'] for x in re_items)
         for g in active_risks:
             if g not in existing_grps: re_items.append({"자산군": g, "종목명": "💡 신규 자산 필요", "현재금액": 0, "현재가": 0})
