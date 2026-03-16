@@ -11,6 +11,13 @@ import json
 import threading
 import concurrent.futures
 
+# [신규] 쿠키 매니저 라이브러리 (자동 로그인용)
+try:
+    import extra_streamlit_components as stx
+    HAS_STX = True
+except ImportError:
+    HAS_STX = False
+
 # ==========================================
 # 🔒 보안 설정
 # ==========================================
@@ -19,22 +26,40 @@ SECRET_PASSCODE = "SM2026"
 # ==========================================
 # 1. 앱 기본 설정
 # ==========================================
-st.set_page_config(page_title="My Asset Hub (v1.44)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="My Asset Hub (v1.45)", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 2. 입장 및 인증 시스템 (상태 관리)
+# 2. 입장 및 인증 시스템 (쿠키 & 상태 관리)
 # ==========================================
+# 쿠키 매니저 실행
+cookie_manager = stx.CookieManager() if HAS_STX else None
+
 query_params = st.query_params
 if 'api_url' not in st.session_state: st.session_state.api_url = query_params.get("api_url", "")
 if 'passcode' not in st.session_state: st.session_state.passcode = query_params.get("passcode", "")
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'show_guide' not in st.session_state: st.session_state.show_guide = False
 
+# [핵심 로직] 브라우저 쿠키(기억)가 남아있으면 자동 패스!
+if HAS_STX:
+    saved_url = cookie_manager.get(cookie="my_api_url")
+    saved_pass = cookie_manager.get(cookie="my_passcode")
+    if saved_url and saved_pass:
+        st.session_state.api_url = saved_url
+        st.session_state.passcode = saved_pass
+        st.session_state.authenticated = True
+
 def login():
     if st.session_state.temp_passcode == SECRET_PASSCODE and st.session_state.temp_api_url.startswith("https://script.google.com/"):
         st.session_state.passcode = st.session_state.temp_passcode
         st.session_state.api_url = st.session_state.temp_api_url
         st.session_state.authenticated = True
+        
+        # [신규] 로그인 성공 시 브라우저에 1년간 기억(쿠키) 심기
+        if HAS_STX:
+            cookie_manager.set("my_api_url", st.session_state.api_url, max_age=31536000)
+            cookie_manager.set("my_passcode", st.session_state.passcode, max_age=31536000)
+            
         st.query_params["passcode"] = st.session_state.passcode
         st.query_params["api_url"] = st.session_state.api_url
     else:
@@ -69,6 +94,9 @@ if not st.session_state.authenticated:
     if not st.session_state.show_guide:
         st.markdown("<h1 style='text-align:center; font-size:2.5rem; margin-bottom:5px; font-weight:800; letter-spacing: -1px;'>Sign in</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center; color:#8b949e; margin-bottom:40px; font-size:1rem;'>My Asset Hub Private Lounge</p>", unsafe_allow_html=True)
+        
+        if not HAS_STX: st.warning("⚠️ 자동 로그인(쿠키) 기능이 비활성화되어 있습니다. 깃허브 requirements.txt를 확인해 주세요.")
+        
         st.text_input("URL ID", key="temp_api_url", value=st.session_state.api_url, placeholder="https://script.google.com/...")
         st.text_input("Private password", type="password", key="temp_passcode", value=st.session_state.passcode, placeholder="초대 코드를 입력하세요")
         st.markdown("<br>", unsafe_allow_html=True)
@@ -107,7 +135,7 @@ function doGet(e) { ... (생략) ... }</code></pre>
     st.stop()
 
 # ==========================================
-# 🟢 메인 자산 관리 앱 로직 (v1.44)
+# 🟢 메인 자산 관리 앱 로직 (v1.45)
 # ==========================================
 st.markdown("""
     <style>
@@ -159,11 +187,10 @@ def sort_and_save():
 kst_now = datetime.utcnow() + timedelta(hours=9)
 logic_date_str = (kst_now - timedelta(days=1)).strftime('%Y-%m-%d') if kst_now.hour < 3 else kst_now.strftime('%Y-%m-%d')
 
-# [검색 엔진 최적화] 병렬 다운로드 로직 적용
 @st.cache_data(ttl=86400)
 def load_market_data():
     dfs = []
-    markets = ['KRX', 'ETF/KR', 'NASDAQ', 'NYSE'] # AMEX 제외로 속도 향상
+    markets = ['KRX', 'ETF/KR', 'NASDAQ', 'NYSE']
     def fetch_mkt(m):
         try:
             df = fdr.StockListing(m)
@@ -199,7 +226,6 @@ def get_price(ticker):
         except: pass
     return 0.0
 
-# [가격 갱신 엔진] 실시간 병렬 가격 수집
 @st.cache_data(ttl=120)
 def get_all_prices_concurrently(tickers):
     prices = {}
@@ -226,10 +252,15 @@ with st.sidebar:
             with st.spinner("동기화 중..."):
                 if save_all_to_cloud(): st.toast("✅ 동기화 성공!")
                 else: st.error("❌ 연결 실패")
-    if st.button("🚪 로그아웃", use_container_width=True):
+    
+    # [수정] 로그아웃 시 브라우저 쿠키(기억)도 함께 삭제
+    if st.button("🚪 다른 금고로 로그인", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.api_url = ""
         st.query_params.clear()
+        if HAS_STX:
+            cookie_manager.delete("my_api_url")
+            cookie_manager.delete("my_passcode")
         st.rerun()
     st.divider()
 
@@ -242,7 +273,6 @@ with st.sidebar.expander("⚙️ 시스템 및 목표 설정"):
             sort_and_save(); st.rerun()
         except: st.error("숫자만 입력해주세요.")
 
-# [검색 로직 최적화] 2글자 이상일 때만 검색 가동
 st.sidebar.markdown("### ➕ 투자 자산 추가")
 asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자 (2글자 이상 입력)")
 
@@ -304,7 +334,7 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.44 (Test)</div>", unsafe_allow_html=True)
+with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.45 (Auto-Login)</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub (Test Server)")
 
@@ -368,22 +398,18 @@ if total_buy > 0: c3.metric("수익금", f"{grand_total - total_buy:,.0f}원", f
 else: c3.metric("수익금", "0원", "0%")
 
 st.markdown("---")
-# 탭 3개 유지 (전략 연구소는 향후 추가)
 tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        # [수정] 시계방향 렌더링 적용 (direction='clockwise')
         fig1 = go.Figure(data=[go.Pie(labels=["가상화폐", "해외 주식", "국내 주식", "은행(안전)"], values=[port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val], hole=.4, sort=False, direction='clockwise', marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
         fig1.update_layout(title="포트폴리오 비중", height=320, margin=dict(t=40, b=10))
         st.plotly_chart(fig1, use_container_width=True)
     with col_p2:
-        # [수정] 리스크 다각화 순서 적용 및 시계방향 렌더링
         pref_order = ["초고위험", "위험", "중립", "안전", "고정(은행)"]
         ordered_keys = sorted(risk_group.keys(), key=lambda x: pref_order.index(x) if x in pref_order else 99)
         ordered_vals = [risk_group[k] for k in ordered_keys]
-        
         fig2 = go.Figure(data=[go.Pie(labels=ordered_keys, values=ordered_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#E74C3C', '#F39C12', '#3498DB', '#2ECC71', '#34495E', '#9B59B6', '#1ABC9C'])])
         fig2.update_layout(title="리스크 다각화", height=320, margin=dict(t=40, b=10))
         st.plotly_chart(fig2, use_container_width=True)
