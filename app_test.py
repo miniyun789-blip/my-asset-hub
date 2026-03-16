@@ -26,7 +26,7 @@ SECRET_PASSCODE = "SM2026"
 # ==========================================
 # 1. 앱 기본 설정
 # ==========================================
-st.set_page_config(page_title="My Asset Hub (v1.46)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="My Asset Hub (v1.47)", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
 # 2. 입장 및 인증 시스템 (쿠키 & 상태 관리)
@@ -138,7 +138,7 @@ function doGet(e) {
     st.stop()
 
 # ==========================================
-# 🟢 메인 자산 관리 앱 로직 (v1.46)
+# 🟢 메인 자산 관리 앱 로직 (v1.47)
 # ==========================================
 st.markdown("""
     <style>
@@ -256,7 +256,8 @@ with st.sidebar:
                 if save_all_to_cloud(): st.toast("✅ 동기화 성공!")
                 else: st.error("❌ 연결 실패")
     
-    if st.button("🚪 다른 금고로 로그인", use_container_width=True):
+    # [수정 3] 버튼 텍스트 '로그아웃'으로 변경
+    if st.button("🚪 로그아웃", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.api_url = ""
         st.query_params.clear()
@@ -336,7 +337,7 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.46 (Integrity)</div>", unsafe_allow_html=True)
+with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.47 (Detail & UX)</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub (Test Server)")
 
@@ -365,7 +366,6 @@ for idx, s in enumerate(st.session_state['stocks']):
     profit = (eval_amt - buy_amt) / buy_amt * 100 if buy_amt > 0 else 0
     stock_disp.append({"ID": idx, "종목명": s.get('종목명'), "티커": ticker, "매수": buy_amt, "평가": eval_amt, "수익률": profit, "리스크": risk_cat, "현재가": curr, "해외": is_foreign, "매수평단가": buy_p, "보유수량": qty})
 
-# [수정 3] 은행 자산 리스크 분리 (예금/파킹통장 -> 안전)
 total_sav_val = 0; total_bank_principal = 0; fixed_sav_val = 0
 for sav in st.session_state['savings']:
     m_val = int(sav.get('월납입액', 0)); c_val = int(sav.get('현재회차', 0)); t_val = int(sav.get('총회차', 1))
@@ -374,13 +374,12 @@ for sav in st.session_state['savings']:
     
     if sav.get('종류') in ["예금", "파킹통장"]:
         risk_group["안전"] = risk_group.get("안전", 0) + amt
-    else: # 적금, 주택청약
+    else:
         fixed_sav_val += amt
         risk_group["고정(은행)"] += amt
 
 grand_total = sum(port_group.values()) + total_sav_val
 
-# [수정 1] 역사적 데이터(History) 및 타임라인 로직 복구
 history_data = load_cloud_data('history')
 history_df = pd.DataFrame(history_data) if history_data else pd.DataFrame(columns=["날짜", "총자산"])
 if grand_total > 0:
@@ -422,39 +421,55 @@ with tab1:
         fig2.update_layout(title="리스크 다각화", height=320, margin=dict(t=40, b=10))
         st.plotly_chart(fig2, use_container_width=True)
     
-    # [수정 1 & 2] 타임라인 복구 및 자동 기록 가이드 추가
     st.divider()
-    col_t1, col_t2 = st.columns([3, 1])
-    with col_t1:
-        st.subheader("🚀 자산 성장 타임라인")
-    with col_t2:
-        if st.button("💡 매일 자동 기록 가이드 보기"):
-            st.session_state['show_history_guide'] = not st.session_state.get('show_history_guide', False)
-            
-    if st.session_state.get('show_history_guide', False):
+    st.subheader("🚀 자산 성장 타임라인")
+    
+    # [수정 2] 일별/월별/연별 탭 복구 로직
+    if not history_df.empty and len(history_df) > 0:
+        history_df['날짜'] = pd.to_datetime(history_df['날짜'])
+        history_df = history_df.sort_values('날짜')
+        
+        tab_d, tab_m, tab_y = st.tabs(["일별", "월별", "연별"])
+        with tab_d:
+            fig_d = px.area(history_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
+            fig_d.update_layout(height=300, margin=dict(t=10, b=10))
+            st.plotly_chart(fig_d, use_container_width=True, config={'staticPlot': True})
+        with tab_m:
+            df_m = history_df.groupby(history_df['날짜'].dt.to_period('M')).last().reset_index()
+            df_m['날짜'] = df_m['날짜'].dt.to_timestamp()
+            if len(df_m) > 0:
+                fig_m = px.area(df_m, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2ECC71'])
+                fig_m.update_layout(height=300, margin=dict(t=10, b=10))
+                st.plotly_chart(fig_m, use_container_width=True, config={'staticPlot': True})
+        with tab_y:
+            df_y = history_df.groupby(history_df['날짜'].dt.to_period('Y')).last().reset_index()
+            df_y['날짜'] = df_y['날짜'].dt.to_timestamp()
+            if len(df_y) > 0:
+                fig_y = px.area(df_y, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#F39C12'])
+                fig_y.update_layout(height=300, margin=dict(t=10, b=10))
+                st.plotly_chart(fig_y, use_container_width=True, config={'staticPlot': True})
+    else:
+        st.info("📊 타임라인을 그리기 위한 데이터가 아직 충분하지 않습니다. (최초 기록 진행 중)")
+    
+    # [수정 1] 그래프 하단 전체 넓이를 차지하는 깔끔한 자동기록 가이드
+    with st.expander("💡 자동기록 가이드 (앱을 안 켜도 매일 알아서 차트 그리기)"):
         st.markdown("""
-        <div class="info-card">
-            <h4 style="margin-top:0; color:#3B82F6;">⏱️ 매일 새벽 3시, 내 자산 자동 기록하기</h4>
-            <p style="font-size:0.95em; color:#334155; line-height:1.6;">
-            앱에 접속하지 않아도 매일 자산 변동이 차트에 기록되게 하려면 <b>'구글 트리거'</b> 설정이 필요합니다.<br>
-            1. 구글 시트 상단 메뉴에서 <b>[확장 프로그램] ➡️ [Apps Script]</b>를 클릭합니다.<br>
-            2. 왼쪽 메뉴에서 시계 모양 아이콘 <b>[트리거]</b>를 클릭합니다.<br>
-            3. 우측 하단 <b>[트리거 추가]</b> 파란색 버튼을 누릅니다.<br>
-            4. 설정창에서 아래와 같이 맞추고 [저장]을 누릅니다.<br>
-               &nbsp;&nbsp;↳ 실행할 함수: <b><code>doPost</code></b> (주의: doGet이 아님)<br>
-               &nbsp;&nbsp;↳ 이벤트 소스: <b>시간 기반</b><br>
-               &nbsp;&nbsp;↳ 트리거 기반 시간 유형: <b>일일 타이머</b><br>
-               &nbsp;&nbsp;↳ 시간대: <b>오전 3시 ~ 4시</b>
+        <div class="info-card" style="margin-bottom:0; padding:15px;">
+            <h4 style="margin-top:0; color:#3B82F6;">🤖 매일 접속하지 않아도 내 자산을 자동으로 기록해 줘요!</h4>
+            <p style="font-size:1.05em; color:#334155; line-height:1.8;">
+            <b>1단계: 구글 시트 열기</b><br>
+            내 자산이 저장된 구글 시트 상단 메뉴에서 <b>[확장 프로그램] 👉 [Apps Script]</b>를 클릭하세요.<br><br>
+            <b>2단계: 알람 시계(트리거) 찾기</b><br>
+            새 창이 열리면 화면 왼쪽 메뉴에서 시계 모양 아이콘(⏰ <b>트리거</b>)을 누르세요.<br><br>
+            <b>3단계: 알람 맞추기</b><br>
+            오른쪽 아래 파란색 <b>[+ 트리거 추가]</b> 버튼을 누르고, 창이 뜨면 <b>아래 4개만 똑같이 맞춘 뒤 [저장]</b>을 누르세요!<br>
+            ✔️ 실행할 함수 선택: <b>doPost</b> (doGet이 아니에요!)<br>
+            ✔️ 이벤트 소스 선택: <b>시간 기반</b><br>
+            ✔️ 트리거 기반 시간 유형 선택: <b>일일 타이머</b><br>
+            ✔️ 시간대 선택: <b>오전 3시 ~ 4시</b> (우리가 자는 새벽에 몰래 기록해요)<br>
             </p>
         </div>
         """, unsafe_allow_html=True)
-        
-    if not history_df.empty and len(history_df) > 1:
-        fig_line = px.area(history_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
-        fig_line.update_layout(height=300, margin=dict(t=10, b=10))
-        st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
-    else:
-        st.info("📊 타임라인을 그리기 위한 데이터가 아직 충분하지 않습니다. (최소 2일 이상의 기록 필요)")
 
 with tab2:
     st.subheader(f"📈 투자 자산 내역 (총 평가: {sum(x['평가'] for x in stock_disp):,.0f}원)")
@@ -493,7 +508,6 @@ with tab2:
                 st.session_state['savings'][i].update({'월납입액': new_m, '현재회차': new_c}); sort_and_save(); st.rerun()
 
 with tab3:
-    # [수정 4] 자산 배분 및 리밸런싱 교육용 UI 추가
     st.markdown("""
     <div class="info-card">
         <h4 style="margin-top:0; color:#3B82F6;">🧭 왜 자산 배분과 리밸런싱을 해야 할까요?</h4>
@@ -517,7 +531,6 @@ with tab3:
         st.divider(); st.subheader("🔬 2단계: 세부 조율")
         re_items = [{"자산군": s['리스크'], "종목명": s['종목명'], "현재금액": int(s['평가']), "현재가": s['현재가']} for s in stock_disp]
         
-        # [수정 3] 리밸런싱 목록에도 예금/파킹통장은 '안전'으로 분류
         for sv in st.session_state['savings']:
             if sv.get('종류') in ["예금", "파킹통장"]:
                 re_items.append({"자산군": "안전", "종목명": sv.get('상품명'), "현재금액": int(sv.get('월납입액', 0)) * int(sv.get('현재회차', 1)), "현재가": 0})
