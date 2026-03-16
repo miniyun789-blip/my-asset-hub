@@ -256,7 +256,6 @@ with st.sidebar:
                 if save_all_to_cloud(): st.toast("✅ 동기화 성공!")
                 else: st.error("❌ 연결 실패")
     
-    # [수정 3] 버튼 텍스트 '로그아웃'으로 변경
     if st.button("🚪 로그아웃", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.api_url = ""
@@ -337,7 +336,7 @@ with st.sidebar.expander("🏦 은행 자산 추가"):
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.47 (Detail & UX)</div>", unsafe_allow_html=True)
+with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.47 (Hotfix)</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub (Test Server)")
 
@@ -424,9 +423,10 @@ with tab1:
     st.divider()
     st.subheader("🚀 자산 성장 타임라인")
     
-    # [수정 2] 일별/월별/연별 탭 복구 로직
+    # [핫픽스] errors='coerce'를 추가하여 잘못된 날짜 형식으로 인한 앱 크래시 방지
     if not history_df.empty and len(history_df) > 0:
-        history_df['날짜'] = pd.to_datetime(history_df['날짜'])
+        history_df['날짜'] = pd.to_datetime(history_df['날짜'], errors='coerce')
+        history_df = history_df.dropna(subset=['날짜']) # 에러난 날짜는 차트에서 제거
         history_df = history_df.sort_values('날짜')
         
         tab_d, tab_m, tab_y = st.tabs(["일별", "월별", "연별"])
@@ -449,9 +449,8 @@ with tab1:
                 fig_y.update_layout(height=300, margin=dict(t=10, b=10))
                 st.plotly_chart(fig_y, use_container_width=True, config={'staticPlot': True})
     else:
-        st.info("📊 타임라인을 그리기 위한 데이터가 아직 충분하지 않습니다. (최초 기록 진행 중)")
+        st.info("📊 타임라인을 그리기 위한 데이터가 아직 충분하지 않습니다.")
     
-    # [수정 1] 그래프 하단 전체 넓이를 차지하는 깔끔한 자동기록 가이드
     with st.expander("💡 자동기록 가이드 (앱을 안 켜도 매일 알아서 차트 그리기)"):
         st.markdown("""
         <div class="info-card" style="margin-bottom:0; padding:15px;">
