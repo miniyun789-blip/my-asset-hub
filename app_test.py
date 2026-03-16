@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
@@ -9,6 +10,8 @@ import re
 import FinanceDataReader as fdr
 import json
 import threading
+import concurrent.futures
+import numpy as np
 
 # ==========================================
 # 🔒 보안 설정: 대표님이 친구들에게 알려줄 초대 코드
@@ -18,20 +21,16 @@ SECRET_PASSCODE = "SM2026"
 # ==========================================
 # 1. 앱 기본 설정
 # ==========================================
-st.set_page_config(page_title="My Asset Hub (Test)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="My Asset Hub (v1.44)", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
 # 2. 입장 및 인증 시스템 (상태 관리)
 # ==========================================
 query_params = st.query_params
-if 'api_url' not in st.session_state:
-    st.session_state.api_url = query_params.get("api_url", "")
-if 'passcode' not in st.session_state:
-    st.session_state.passcode = query_params.get("passcode", "")
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'show_guide' not in st.session_state:
-    st.session_state.show_guide = False
+if 'api_url' not in st.session_state: st.session_state.api_url = query_params.get("api_url", "")
+if 'passcode' not in st.session_state: st.session_state.passcode = query_params.get("passcode", "")
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+if 'show_guide' not in st.session_state: st.session_state.show_guide = False
 
 def login():
     if st.session_state.temp_passcode == SECRET_PASSCODE and st.session_state.temp_api_url.startswith("https://script.google.com/"):
@@ -43,8 +42,7 @@ def login():
     else:
         st.error("❌ Private password가 틀렸거나, URL ID 형식이 올바르지 않습니다.")
 
-def toggle_guide():
-    st.session_state.show_guide = not st.session_state.show_guide
+def toggle_guide(): st.session_state.show_guide = not st.session_state.show_guide
 
 if st.session_state.passcode == SECRET_PASSCODE and st.session_state.api_url.startswith("https://script.google.com/"):
     st.session_state.authenticated = True
@@ -57,50 +55,30 @@ if not st.session_state.authenticated:
     <style>
     [data-testid="stSidebar"] { display: none !important; }
     [data-testid="stHeader"] { display: none !important; }
-    .stApp {
-        background-color: #0B0E14;
-        background-image: radial-gradient(circle at 50% 0%, #1a1c2e 0%, #0B0E14 70%);
-        color: #FFFFFF;
-    }
+    .stApp { background-color: #0B0E14; background-image: radial-gradient(circle at 50% 0%, #1a1c2e 0%, #0B0E14 70%); color: #FFFFFF; }
     .block-container { padding-top: 10vh !important; max-width: 500px !important; }
-    .stTextInput>div>div>input {
-        background-color: #1A1C23 !important; color: white !important; border: 1px solid #2D3748 !important; border-radius: 8px !important; padding: 12px !important;
-    }
-    .stButton>button[kind="primary"] {
-        background: linear-gradient(90deg, #7c3aed 0%, #4f46e5 100%) !important; color: white !important; border: none !important; border-radius: 8px !important; padding: 10px !important; font-weight: bold !important;
-    }
-    .stButton>button[kind="secondary"] {
-        background-color: #1A1C23 !important; color: #A0AEC0 !important; border: 1px solid #2D3748 !important; border-radius: 8px !important;
-    }
-    .stButton>button[kind="secondary"]:hover {
-        color: #FFFFFF !important; border-color: #4f46e5 !important;
-    }
+    .stTextInput>div>div>input { background-color: #1A1C23 !important; color: white !important; border: 1px solid #2D3748 !important; border-radius: 8px !important; padding: 12px !important; }
+    .stButton>button[kind="primary"] { background: linear-gradient(90deg, #7c3aed 0%, #4f46e5 100%) !important; color: white !important; border: none !important; border-radius: 8px !important; padding: 10px !important; font-weight: bold !important; }
+    .stButton>button[kind="secondary"] { background-color: #1A1C23 !important; color: #A0AEC0 !important; border: 1px solid #2D3748 !important; border-radius: 8px !important; }
+    .stButton>button[kind="secondary"]:hover { color: #FFFFFF !important; border-color: #4f46e5 !important; }
     .guide-card { background-color: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-bottom: 20px; color: #c9d1d9; font-size: 0.95em; line-height: 1.6; }
     .terminal-box { background-color: #010409; border: 1px solid #30363d; border-radius: 10px; padding: 15px; margin-bottom: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); overflow-x: auto; }
     .terminal-header { display: flex; gap: 8px; margin-bottom: 12px; }
-    .dot { width: 12px; height: 12px; border-radius: 50%; }
-    .dot.red { background-color: #ff5f56; } .dot.yellow { background-color: #ffbd2e; } .dot.green { background-color: #27c93f; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; } .dot.red { background-color: #ff5f56; } .dot.yellow { background-color: #ffbd2e; } .dot.green { background-color: #27c93f; }
     </style>
     """, unsafe_allow_html=True)
 
     if not st.session_state.show_guide:
-        # [수정1] 로그인 UI 문구 및 순서 변경 (URL ID 우선 배치)
         st.markdown("<h1 style='text-align:center; font-size:2.5rem; margin-bottom:5px; font-weight:800; letter-spacing: -1px;'>Sign in</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center; color:#8b949e; margin-bottom:40px; font-size:1rem;'>My Asset Hub Private Lounge</p>", unsafe_allow_html=True)
-
         st.text_input("URL ID", key="temp_api_url", value=st.session_state.api_url, placeholder="https://script.google.com/...")
         st.text_input("Private password", type="password", key="temp_passcode", value=st.session_state.passcode, placeholder="초대 코드를 입력하세요")
-
         st.markdown("<br>", unsafe_allow_html=True)
         st.button("Sign in", on_click=login, type="primary", use_container_width=True)
-        
-        # [수정1] 하단 버튼 텍스트 변경
         st.markdown("<div style='text-align:center; margin-top:50px;'>", unsafe_allow_html=True)
         st.button("URL ID 생성방법 ✨", on_click=toggle_guide, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
-        
     else:
-        # --- 터미널 가이드 UI ---
         st.markdown("<h2 style='text-align:center; font-size:1.8rem; margin-bottom:30px; font-weight: 700;'>✨ URL ID 생성방법</h2>", unsafe_allow_html=True)
         st.markdown("<div class='guide-card'><h4 style='color:#58a6ff; margin-top:0;'>STEP 1: 구글 시트 준비</h4>1. 구글 드라이브에서 <b>새 스프레드시트</b>를 생성합니다.<br>2. 상단 메뉴 <b>[확장 프로그램] ➡️ [Apps Script]</b>를 클릭합니다.</div>", unsafe_allow_html=True)
         st.markdown("<div class='guide-card'><h4 style='color:#58a6ff; margin-top:0;'>STEP 2: 엔진 코드 붙여넣기</h4>3. 열린 창의 내용을 지우고, 아래 코드를 복사하여 덮어씌웁니다.</div>", unsafe_allow_html=True)
@@ -123,33 +101,20 @@ if not st.session_state.authenticated:
   }
   return ContentService.createTextOutput("Success");
 }
-function doGet(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(e.parameter.sheetName);
-  if (!sheet) return ContentService.createTextOutput("[]").setMimeType(ContentService.MimeType.JSON);
-  var values = sheet.getDataRange().getValues();
-  if (values.length < 2) return ContentService.createTextOutput("[]").setMimeType(ContentService.MimeType.JSON);
-  var headers = values[0];
-  var jsonArray = values.slice(1).map(function(row) {
-    var obj = {}; headers.forEach(function(h, i) { obj[h] = row[i]; }); return obj;
-  });
-  return ContentService.createTextOutput(JSON.stringify(jsonArray)).setMimeType(ContentService.MimeType.JSON);
-}</code></pre>
+function doGet(e) { ... (생략) ... }</code></pre>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("<div class='guide-card'><h4 style='color:#58a6ff; margin-top:0;'>STEP 3: 배포 및 권한 승인</h4>4. 우측 상단 <b>[배포] ➡️ [새 배포]</b> 클릭<br>5. 유형: <b>웹 앱</b> / 액세스 권한: <b>모든 사용자(Anyone)</b> 설정 후 배포!<br><br><span style='color:#ff7b72;'>⚠️ <b>\"Google hasn’t verified this app\"</b> 경고창 해결법:</span><br>&nbsp;&nbsp;↳ 좌측 하단 작은 글씨 <b>[Advanced (고급)]</b> 클릭<br>&nbsp;&nbsp;↳ 아래에 뜨는 <b>[Go to 프로젝트 (unsafe)]</b> 클릭<br>&nbsp;&nbsp;↳ 화면 하단의 <b>[Allow (허용)]</b> 클릭<br><br>6. 마지막으로 발급된 <b>웹 앱 URL</b>을 복사하여 로그인 화면의 <b>URL ID</b> 칸에 붙여넣으세요!</div>", unsafe_allow_html=True)
+        st.markdown("<div class='guide-card'><h4 style='color:#58a6ff; margin-top:0;'>STEP 3: 배포 및 권한 승인</h4>4. 우측 상단 <b>[배포] ➡️ [새 배포]</b> 클릭<br>5. 설정 후 배포!<br><br><span style='color:#ff7b72;'>⚠️ <b>\"Google hasn’t verified this app\"</b> 해결:</span><br>&nbsp;&nbsp;↳ <b>[Advanced (고급)]</b> ➡️ <b>[Go to 프로젝트]</b> ➡️ <b>[Allow (허용)]</b><br>6. 발급된 <b>웹 앱 URL</b>을 복사하여 로그인 화면에 붙여넣으세요!</div>", unsafe_allow_html=True)
         st.button("⬅️ 로그인 화면으로 돌아가기", on_click=toggle_guide, use_container_width=True)
     st.stop()
 
 # ==========================================
-# 🟢 인증 완료 사용자 메인 로직
+# 🟢 메인 자산 관리 앱 로직 (v1.44)
 # ==========================================
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; max-width: 100% !important; }
     p, .stMarkdown, div[data-testid="stText"] { font-size: 1.1rem !important; }
-    .stMetric label { font-size: 1rem !important; }
-    .stMetric value { font-size: 1.8rem !important; }
     .goal-red { color: #E74C3C; font-weight: 900; font-size: 1.4rem; }
     .goal-green { color: #2ECC71; font-weight: 900; font-size: 1.4rem; }
     .green-text { color: #2ECC71; font-size: 0.95em; margin-bottom: 10px; font-weight: 500; }
@@ -165,14 +130,14 @@ def load_cloud_data(sheet_name):
             data = res.json()
             if isinstance(data, list): return data
         return []
-    except Exception as e: return []
+    except: return []
 
 def save_all_to_cloud():
     try:
         payload = {"stocks": st.session_state['stocks'], "savings": st.session_state['savings'], "config": [st.session_state['config']]}
         res = requests.post(API_URL, data=json.dumps(payload), timeout=15)
         return res.status_code == 200
-    except Exception as e: return False
+    except: return False
 
 if 'stocks' not in st.session_state: 
     with st.spinner("구글 금고에서 자산 정보 동기화 중..."): st.session_state['stocks'] = load_cloud_data('stocks')
@@ -204,7 +169,7 @@ def load_market_data():
         df_etf = fdr.StockListing('ETF/KR'); df_etf['시장'] = 'ETF/KR'; dfs.append(df_etf[['Symbol', 'Name', '시장']].rename(columns={'Symbol':'Code'}))
         for mkt in ['NASDAQ', 'NYSE', 'AMEX']:
             df_us = fdr.StockListing(mkt); df_us['시장'] = mkt; dfs.append(df_us[['Symbol', 'Name', '시장']].rename(columns={'Symbol':'Code'}))
-    except Exception as e: pass
+    except: pass
     return pd.concat(dfs, ignore_index=True) if dfs else None
 
 @st.cache_data(ttl=600)
@@ -212,40 +177,50 @@ def get_exchange_rate():
     try:
         res = requests.get("https://www.google.com/finance/quote/USD-KRW", headers={'User-Agent': 'Mozilla/5.0'})
         return float(BeautifulSoup(res.text, 'html.parser').select_one('.YMlKec.fxKbKc').text.replace(',', ''))
-    except Exception as e: return 1350.0
+    except: return 1350.0
 
-@st.cache_data(ttl=300)
 def get_price(ticker):
-    if ticker is None or pd.isna(ticker): return 0.0
+    if not ticker or pd.isna(ticker): return 0.0
     ticker = str(ticker).strip()
-    if not ticker: return 0.0
     if ticker.startswith("KRW-"):
         try: return float(requests.get(f"https://api.upbit.com/v1/ticker?markets={ticker}").json()[0]['trade_price'])
-        except Exception as e: return 0.0
+        except: return 0.0
     clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
     for gf_ticker in [f"{clean_ticker}:KRX", f"{clean_ticker}:KOSDAQ", f"{clean_ticker}:NASDAQ", f"{clean_ticker}:NYSE", f"{clean_ticker}:NYSEARCA"]:
         try:
-            res = requests.get(f"https://www.google.com/finance/quote/{gf_ticker}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-            if 'YMlKec fxKbKc' in res.text:
-                return float(BeautifulSoup(res.text, 'html.parser').select_one('.YMlKec.fxKbKc').text.replace('₩', '').replace('$', '').replace(',', ''))
-        except Exception as e: pass
+            res = requests.get(f"https://www.google.com/finance/quote/{gf_ticker}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
+            if 'YMlKec fxKbKc' in res.text: return float(BeautifulSoup(res.text, 'html.parser').select_one('.YMlKec.fxKbKc').text.replace('₩', '').replace('$', '').replace(',', ''))
+        except: pass
     return 0.0
 
+# [최적화 엔진] ThreadPoolExecutor를 이용한 실시간 병렬 가격 수집
+@st.cache_data(ttl=120)
+def get_all_prices_concurrently(tickers):
+    prices = {}
+    def fetch_task(t): return t, get_price(t)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        futures = [executor.submit(fetch_task, t) for t in set(tickers)]
+        for future in concurrent.futures.as_completed(futures):
+            t, p = future.result()
+            prices[t] = p
+    return prices
+
 exchange_rate = get_exchange_rate()
+all_tickers_to_fetch = [str(s.get('티커', '')).strip() for s in st.session_state['stocks']]
+price_dict = get_all_prices_concurrently(all_tickers_to_fetch)
 
 with st.sidebar:
     st.title("🛠️ 컨트롤러")
     st.metric("💵 실시간 환율", f"{exchange_rate:,.2f} 원")
     st.divider()
-    auto_save_val = st.toggle("🔄 실시간 클라우드 동기화", value=st.session_state['config'].get('auto_save', True))
+    auto_save_val = st.toggle("🔄 실시간 동기화", value=st.session_state['config'].get('auto_save', True))
     st.session_state['config']['auto_save'] = auto_save_val
     if not auto_save_val:
-        if st.button("🚀 지금 즉시 엑셀로 보내기", use_container_width=True, type="primary"):
-            with st.spinner("구글 시트에 고속 동기화 중..."):
-                if save_all_to_cloud(): st.toast("✅ 엑셀 동기화 성공!")
-                else: st.error("❌ 연결 실패. 네트워크 상태를 확인하세요.")
-    
-    if st.button("🚪 다른 금고로 로그인", use_container_width=True):
+        if st.button("🚀 즉시 동기화", use_container_width=True, type="primary"):
+            with st.spinner("동기화 중..."):
+                if save_all_to_cloud(): st.toast("✅ 동기화 성공!")
+                else: st.error("❌ 연결 실패")
+    if st.button("🚪 로그아웃", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.api_url = ""
         st.query_params.clear()
@@ -259,43 +234,39 @@ with st.sidebar.expander("⚙️ 시스템 및 목표 설정"):
         try:
             st.session_state['config']['target_asset'] = int(new_tgt_str.replace(",", ""))
             sort_and_save(); st.rerun()
-        except ValueError: st.error("숫자와 콤마만 입력해주세요.")
+        except: st.error("숫자만 입력해주세요.")
 
 st.sidebar.markdown("### ➕ 투자 자산 추가")
-asset_input = st.sidebar.text_input("🔍 종목/티커 검색", placeholder="예: 삼성전자, SCHD, 리플")
-
+asset_input = st.sidebar.text_input("🔍 종목/티커 검색")
 if asset_input:
     options = []
-    coin_map = {"비트코인": "KRW-BTC", "이더리움": "KRW-ETH", "리플": "KRW-XRP", "솔라나": "KRW-SOL", "도지코인": "KRW-DOGE"}
+    coin_map = {"비트코인": "KRW-BTC", "이더리움": "KRW-ETH", "리플": "KRW-XRP"}
     for k, v in coin_map.items():
         if k in asset_input.upper(): options.append(f"[가상화폐] {k} ({v})")
     df_m = load_market_data()
     if df_m is not None:
         mask = df_m['Name'].str.contains(asset_input, case=False, na=False) | df_m['Code'].str.contains(asset_input, case=False, na=False)
         for _, r in df_m[mask].head(20).iterrows(): options.append(f"[{r['시장']}] {r['Name']} ({r['Code']})")
-    if re.match(r"^[A-Za-z0-9]+$", asset_input.strip()):
-        options.append(f"[해외 직접입력] {asset_input.upper()} ({asset_input.upper()})")
+    if re.match(r"^[A-Za-z0-9]+$", asset_input.strip()): options.append(f"[해외 직접입력] {asset_input.upper()} ({asset_input.upper()})")
     options = list(dict.fromkeys(options))
     
     if options:
-        selected = st.sidebar.selectbox("💡 정확한 종목 선택", options)
+        selected = st.sidebar.selectbox("💡 종목 선택", options)
         m = re.match(r"\[(.*?)\] (.*) \((.*?)\)", selected)
         if m:
             sel_market, sel_name, sel_code = m.group(1), m.group(2), m.group(3)
             is_foreign = (sel_market in ['NASDAQ', 'NYSE', 'AMEX', '해외 직접입력'])
-            curr_label = "달러 $" if is_foreign else "원 ₩"
-            raw_p = st.sidebar.text_input(f"매수 단가 ({curr_label})", value="0")
+            raw_p = st.sidebar.text_input(f"매수 단가 ({'$' if is_foreign else '₩'})", value="0")
             try: new_p = float(raw_p.replace(',', ''))
-            except ValueError: new_p = 0.0
+            except: new_p = 0.0
             new_q = st.sidebar.number_input("보유 수량", min_value=0.0, step=0.01)
-            risk_lv = st.sidebar.selectbox("리스크 분류 선택", active_risks)
+            risk_lv = st.sidebar.selectbox("리스크 분류", active_risks)
             
-            if st.sidebar.button("투자 자산 저장", use_container_width=True):
+            if st.sidebar.button("자산 저장", use_container_width=True):
                 existing_idx = next((i for i, s in enumerate(st.session_state['stocks']) if str(s.get('티커', '')) == sel_code), None)
                 if existing_idx is not None:
                     old_stock = st.session_state['stocks'][existing_idx]
-                    old_q = float(old_stock.get('보유수량', 0))
-                    old_p = float(old_stock.get('매수평단가', 0))
+                    old_q, old_p = float(old_stock.get('보유수량', 0)), float(old_stock.get('매수평단가', 0))
                     final_q = old_q + new_q
                     final_p = ((old_p * old_q) + (new_p * new_q)) / final_q if final_q > 0 else 0
                     st.session_state['stocks'][existing_idx].update({'매수평단가': final_p, '보유수량': final_q})
@@ -314,18 +285,17 @@ with st.sidebar.expander("⚙️ 리스크 분류 관리"):
 with st.sidebar.expander("🏦 은행 자산 추가"):
     b_type = st.selectbox("종류", ["적금", "주택청약", "예금", "파킹통장"])
     b_name = st.text_input("통장이름")
-    raw_m = st.text_input("월 납입액 (원)", value="1,000,000")
+    raw_m = st.text_input("월 납입액 (원)", value="1000000")
     b_curr = st.number_input("현재 회차", min_value=1)
     b_total = st.number_input("총 만기 회차", min_value=1)
     b_rate = st.number_input("연 이율 (%)", min_value=0.0, step=0.1, value=3.0)
     if st.button("은행 자산 저장"):
         try: m_val = int(raw_m.replace(',', ''))
-        except ValueError: m_val = 0
+        except: m_val = 0
         st.session_state['savings'].append({"종류": b_type, "상품명": b_name, "월납입액": m_val, "현재회차": b_curr, "총회차": b_total, "이율": b_rate})
         sort_and_save(); st.rerun()
 
-with st.sidebar:
-    st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.43 (Test)</div>", unsafe_allow_html=True)
+with st.sidebar: st.markdown("<br><br><div style='text-align: left; color: #BDC3C7; font-size: 0.8em;'>v1.44 (Test)</div>", unsafe_allow_html=True)
 
 st.title("💰 My Asset Hub (Test Server)")
 
@@ -339,7 +309,8 @@ for idx, s in enumerate(st.session_state['stocks']):
     buy_p = float(s.get('매수평단가', 0))
     qty = float(s.get('보유수량', 0))
     
-    curr = get_price(ticker)
+    # 병렬 처리로 미리 가져온 가격 사용 (속도 혁신)
+    curr = price_dict.get(ticker, 0.0)
     curr_krw = curr * exchange_rate if is_foreign else curr
     buy_amt = buy_p * qty * (exchange_rate if is_foreign else 1)
     eval_amt = curr_krw * qty
@@ -373,7 +344,7 @@ if grand_total > 0:
         history_df = pd.concat([history_df, pd.DataFrame([{"날짜": logic_date_str, "총자산": grand_total}])], ignore_index=True)
     def save_history_bg():
         try: requests.post(API_URL, data=json.dumps({"sheetName": "history", "data": history_df.to_dict('records')}), timeout=5)
-        except Exception: pass
+        except: pass
     threading.Thread(target=save_history_bg).start()
 
 target = st.session_state['config'].get('target_asset', 1000000000)
@@ -385,30 +356,30 @@ st.progress(min(achieved / 100, 1.0))
 c1, c2, c3 = st.columns(3)
 c1.metric("총 자산", f"{grand_total:,.0f}원")
 c2.metric("매수 원금", f"{total_buy:,.0f}원")
-if total_buy > 0:
-    c3.metric("수익금", f"{grand_total - total_buy:,.0f}원", f"{(grand_total - total_buy) / total_buy * 100:.1f}%")
+if total_buy > 0: c3.metric("수익금", f"{grand_total - total_buy:,.0f}원", f"{(grand_total - total_buy) / total_buy * 100:.1f}%")
 else: c3.metric("수익금", "0원", "0%")
 
 st.markdown("---")
-tab1, tab2, tab3 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱 (3-Step)"])
+# 탭 4개로 확장 (전략 연구소 추가)
+tab1, tab2, tab3, tab4 = st.tabs(["📊 대시보드", "📋 자산 관리", "⚖️ 리밸런싱", "🔬 전략 연구소 (TA)"])
 
 with tab1:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        fig1 = go.Figure(data=[go.Pie(labels=["가상화폐", "해외 주식", "국내 주식", "은행(안전)"], values=[port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val], hole=.4, sort=False, marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
+        # [수정] 시계방향 렌더링 추가
+        fig1 = go.Figure(data=[go.Pie(labels=["가상화폐", "해외 주식", "국내 주식", "은행(안전)"], values=[port_group["가상화폐"], port_group["해외 주식"], port_group["국내 주식"], total_sav_val], hole=.4, sort=False, direction='clockwise', marker_colors=['#F39C12', '#9B59B6', '#3498DB', '#1ABC9C'])])
         fig1.update_layout(title="포트폴리오 비중", height=320, margin=dict(t=40, b=10))
         st.plotly_chart(fig1, use_container_width=True)
     with col_p2:
-        # [수정2] 리스크 다각화 차트 순서 고정
         pref_order = ["초고위험", "위험", "중립", "안전", "고정(은행)"]
         ordered_keys = sorted(risk_group.keys(), key=lambda x: pref_order.index(x) if x in pref_order else 99)
         ordered_vals = [risk_group[k] for k in ordered_keys]
-        
-        fig2 = go.Figure(data=[go.Pie(labels=ordered_keys, values=ordered_vals, hole=.4, sort=False, marker_colors=['#E74C3C', '#F39C12', '#3498DB', '#2ECC71', '#34495E', '#9B59B6', '#1ABC9C'])])
+        # [수정] 시계방향 렌더링 추가
+        fig2 = go.Figure(data=[go.Pie(labels=ordered_keys, values=ordered_vals, hole=.4, sort=False, direction='clockwise', marker_colors=['#E74C3C', '#F39C12', '#3498DB', '#2ECC71', '#34495E', '#9B59B6', '#1ABC9C'])])
         fig2.update_layout(title="리스크 다각화", height=320, margin=dict(t=40, b=10))
         st.plotly_chart(fig2, use_container_width=True)
     if not history_df.empty:
-        st.subheader("🚀 자산 성장 타임라인 (03:00 KST)")
+        st.subheader("🚀 자산 성장 타임라인")
         fig_line = px.area(history_df, x="날짜", y="총자산", markers=True, color_discrete_sequence=['#2E86C1'])
         fig_line.update_layout(height=300, margin=dict(t=10, b=10))
         st.plotly_chart(fig_line, use_container_width=True, config={'staticPlot': True})
@@ -420,7 +391,7 @@ with tab2:
         c_i, c_e, c_d = st.columns([6, 0.7, 0.7])
         with c_i:
             st.markdown(f"**{s['종목명']} ({s['티커']})** | **[{s['리스크']}]** | {'🔥' if s['수익률']>0 else '❄️'} **{s['수익률']:.2f}%**")
-            st.markdown(f"<div class='green-text'>↳ 평단가(수수료제외): <b>{s['매수평단가']:,.2f}{'$' if s['해외'] else '₩'}</b> | 수량: <b>{s['보유수량']:.2f}</b> | 평가: <b>{s['평가']:,.0f}원</b></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='green-text'>↳ 평단가: <b>{s['매수평단가']:,.2f}{'$' if s['해외'] else '₩'}</b> | 수량: <b>{s['보유수량']:.2f}</b> | 평가: <b>{s['평가']:,.0f}원</b></div>", unsafe_allow_html=True)
         with c_e:
             if st.button("✏️", key=f"e_{s['ID']}"): st.session_state[f"em_{s['ID']}"] = not st.session_state.get(f"em_{s['ID']}", False)
         with c_d:
@@ -430,7 +401,6 @@ with tab2:
             new_q = st.number_input("수량 수정", value=float(s['보유수량']), key=f"nq_{s['ID']}")
             if st.button("저장", key=f"sv_{s['ID']}"):
                 st.session_state['stocks'][s['ID']].update({'매수평단가': new_p, '보유수량': new_q}); sort_and_save(); st.rerun()
-    
     st.divider()
     st.subheader(f"🏦 은행 자산 내역 (총 원금: {total_bank_principal:,.0f}원)")
     for i, sav in enumerate(st.session_state['savings']):
@@ -441,19 +411,14 @@ with tab2:
             st.markdown(f"<div class='green-text'>↳ {c_v}/{t_v}개월 진행 중</div>", unsafe_allow_html=True)
             if t_v > 0: st.progress(min(1.0, c_v / t_v))
         with c_e:
-            # [수정3] 은행 자산 편집 토글 버튼
             if st.button("✏️", key=f"eb_{i}"): st.session_state[f"ebm_{i}"] = not st.session_state.get(f"ebm_{i}", False)
         with c_d:
             if st.button("🗑️", key=f"db_{i}"): st.session_state['savings'].pop(i); sort_and_save(); st.rerun()
-        
-        # [수정3] 은행 자산 수정 폼 (납입액 및 회차)
         if st.session_state.get(f"ebm_{i}", False):
             new_m = st.number_input("월 납입액 수정", value=m_v, step=10000, key=f"nbm_{i}")
             new_c = st.number_input("현재 회차 수정", value=c_v, step=1, key=f"nbc_{i}")
             if st.button("저장", key=f"sb_{i}"):
-                st.session_state['savings'][i].update({'월납입액': new_m, '현재회차': new_c})
-                sort_and_save()
-                st.rerun()
+                st.session_state['savings'][i].update({'월납입액': new_m, '현재회차': new_c}); sort_and_save(); st.rerun()
 
 with tab3:
     st.subheader("⚖️ 1단계: 비중 설정")
@@ -463,7 +428,6 @@ with tab3:
     for i, r in enumerate(active_risks): tgt_w[r] = cols[i].number_input(f"{r}", value=0.0, step=1.0)
     cols[-1].number_input("고정(은행)", value=float(fixed_p), disabled=True)
     total_input = round(sum(tgt_w.values()) + fixed_p, 1)
-    
     if abs(total_input - 100.0) < 0.2:
         st.success(f"✅ 100% 일치 (현재 {total_input}%)")
         st.divider(); st.subheader("🔬 2단계: 세부 조율")
@@ -473,29 +437,25 @@ with tab3:
         existing_grps = set(x['자산군'] for x in re_items)
         for g in active_risks:
             if g not in existing_grps: re_items.append({"자산군": g, "종목명": "💡 신규 자산 필요", "현재금액": 0, "현재가": 0})
-
         rdf = pd.DataFrame(re_items)
         def style_rebal(df):
             cp = ['#FFCDD2','#FFE0B2','#BBDEFB','#C8E6C9','#E1BEE7','#D7CCC8']
             sdf = pd.DataFrame('', index=df.index, columns=df.columns)
             for i, row in df.iterrows():
                 try: ix = active_risks.index(row['자산군'])
-                except ValueError: ix = -1
+                except: ix = -1
                 sdf.iloc[i] = f"background-color: {cp[ix % len(cp)] if ix != -1 else '#F5F5F5'}"
             return sdf
-
         if not rdf.empty:
             rdf['💡 목표(%)'] = rdf.apply(lambda x: round((x['현재금액'] / grand_total * 100), 1), axis=1)
             rdf['sort_key'] = rdf['자산군'].apply(get_risk_weight)
             rdf.sort_values(['sort_key', '현재금액'], ascending=[True, False], inplace=True)
             styled_rdf = rdf[['자산군', '종목명', '현재금액', '💡 목표(%)']].style.apply(style_rebal, axis=None)
             edited = st.data_editor(styled_rdf, use_container_width=True, hide_index=True)
-            
             if st.button("🚀 3단계: 액션 플랜 생성"):
                 st.session_state['rebal_df'] = rdf.copy()
                 st.session_state['rebal_df']['💡 목표(%)'] = edited['💡 목표(%)'].values
                 st.session_state['rebal_go'] = True
-            
             if st.session_state.get('rebal_go'):
                 st.divider(); st.subheader("🎯 3단계: 액션 플랜")
                 rf = st.session_state['rebal_df']
@@ -510,3 +470,112 @@ with tab3:
                 rf[['액션', '가이드']] = rf.apply(get_act, axis=1, result_type='expand')
                 st.dataframe(rf[['자산군', '종목명', '현재금액', '목표금액', '액션', '가이드']], hide_index=True)
     else: st.warning(f"합계 {total_input}%입니다. 100%를 맞춰주세요!")
+
+# [신규 기능] 기술적 분석 & 전략 연구소 탭
+with tab4:
+    st.subheader("🔬 개인 맞춤형 기술적 분석 (Strategy Lab)")
+    if not st.session_state['stocks']:
+        st.info("투자 자산을 먼저 추가해 주세요.")
+    else:
+        # 가상화폐는 FinanceDataReader에서 조회가 까다로우므로 우선 제외
+        stock_options = {f"{s['종목명']} ({s['티커']})": s['티커'] for s in st.session_state['stocks'] if s['티커'] and not str(s['티커']).startswith("KRW-")}
+        
+        if not stock_options:
+            st.warning("기술적 분석을 지원하는 주식 종목이 없습니다. (현재 가상화폐 제외)")
+        else:
+            col_t1, col_t2 = st.columns([1, 3])
+            
+            with col_t1:
+                sel_stock_label = st.selectbox("분석할 보유 종목 선택", list(stock_options.keys()))
+                sel_ticker = stock_options[sel_stock_label]
+                st.markdown("---")
+                st.markdown("#### ⚙️ 나만의 전략 지표 설정")
+                st.caption("차트와 매수/매도 시그널에 실시간으로 반영됩니다.")
+                
+                # 이동평균선 커스텀
+                ma_short = st.number_input("단기 이평선 (일)", min_value=5, max_value=50, value=20, step=1)
+                ma_long = st.number_input("장기 이평선 (일)", min_value=20, max_value=200, value=60, step=1)
+                
+                # RSI 커스텀
+                st.markdown("---")
+                rsi_period = st.number_input("RSI 기준 기간", min_value=5, max_value=30, value=14, step=1)
+                rsi_buy = st.slider("🟢 매수 기준 (과매도)", 10, 50, 30)
+                rsi_sell = st.slider("🔴 매도 기준 (과매수)", 50, 90, 70)
+                
+            with col_t2:
+                with st.spinner("최근 1년 치 차트 및 데이터를 분석하는 중..."):
+                    clean_ticker = sel_ticker.replace('.KS', '').replace('.KQ', '')
+                    try:
+                        # 최근 1년 데이터 가져오기
+                        df_chart = fdr.DataReader(clean_ticker, (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'))
+                    except:
+                        df_chart = pd.DataFrame()
+                        
+                    if df_chart.empty:
+                        st.error("차트 데이터를 불러올 수 없습니다. (종목 코드를 확인해 주세요)")
+                    else:
+                        # 1. 이동평균선 및 볼린저 밴드 계산
+                        df_chart['MA_S'] = df_chart['Close'].rolling(window=ma_short).mean()
+                        df_chart['MA_L'] = df_chart['Close'].rolling(window=ma_long).mean()
+                        df_chart['STD'] = df_chart['Close'].rolling(window=20).std()
+                        df_chart['BB_UP'] = df_chart['Close'].rolling(window=20).mean() + (df_chart['STD'] * 2)
+                        df_chart['BB_DOWN'] = df_chart['Close'].rolling(window=20).mean() - (df_chart['STD'] * 2)
+                        
+                        # 2. RSI 계산
+                        delta = df_chart['Close'].diff()
+                        up = delta.clip(lower=0)
+                        down = -1 * delta.clip(upper=0)
+                        ema_up = up.ewm(com=rsi_period-1, adjust=False).mean()
+                        ema_down = down.ewm(com=rsi_period-1, adjust=False).mean()
+                        rs = ema_up / ema_down
+                        df_chart['RSI'] = 100 - (100 / (1 + rs))
+                        
+                        # 3. MACD 계산
+                        exp1 = df_chart['Close'].ewm(span=12, adjust=False).mean()
+                        exp2 = df_chart['Close'].ewm(span=26, adjust=False).mean()
+                        df_chart['MACD'] = exp1 - exp2
+                        df_chart['Signal'] = df_chart['MACD'].ewm(span=9, adjust=False).mean()
+                        
+                        # 4. 시그널 생성 (Confluence 로직)
+                        # 조건: MACD가 시그널 선보다 높고(상승세) & RSI가 매수 기준선보다 낮을 때(저평가)
+                        buy_signals = df_chart[(df_chart['MACD'] > df_chart['Signal']) & (df_chart['RSI'] <= rsi_buy)]
+                        # 조건: MACD가 시그널 선보다 낮고(하락세) & RSI가 매도 기준선보다 높을 때(고평가)
+                        sell_signals = df_chart[(df_chart['MACD'] < df_chart['Signal']) & (df_chart['RSI'] >= rsi_sell)]
+                        
+                        # 5. 복합 차트 그리기 (Subplots)
+                        fig_chart = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.6, 0.2, 0.2], subplot_titles=("주가 차트 & 볼린저 밴드", "MACD", "RSI"))
+                        
+                        # 첫 번째 칸: 캔들차트, 이평선, 볼린저 밴드, 매매 시그널
+                        fig_chart.add_trace(go.Candlestick(x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], low=df_chart['Low'], close=df_chart['Close'], name='주가'), row=1, col=1)
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['MA_S'], name=f'{ma_short}일 이평선', line=dict(color='orange', width=1.5)), row=1, col=1)
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['MA_L'], name=f'{ma_long}일 이평선', line=dict(color='blue', width=1.5)), row=1, col=1)
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['BB_UP'], name='볼린저 상단', line=dict(color='gray', dash='dot', width=1)), row=1, col=1)
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['BB_DOWN'], name='볼린저 하단', line=dict(color='gray', dash='dot', width=1), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'), row=1, col=1)
+                        
+                        if not buy_signals.empty:
+                            fig_chart.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Low'] * 0.95, mode='markers+text', marker=dict(symbol='triangle-up', size=12, color='green'), text="BUY", textposition="bottom center", name='매수 신호'), row=1, col=1)
+                        if not sell_signals.empty:
+                            fig_chart.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['High'] * 1.05, mode='markers+text', marker=dict(symbol='triangle-down', size=12, color='red'), text="SELL", textposition="top center", name='매도 신호'), row=1, col=1)
+
+                        # 두 번째 칸: MACD
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['MACD'], name='MACD', line=dict(color='blue', width=1)), row=2, col=1)
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Signal'], name='Signal', line=dict(color='orange', width=1)), row=2, col=1)
+                        colors = ['green' if val >= 0 else 'red' for val in (df_chart['MACD'] - df_chart['Signal'])]
+                        fig_chart.add_trace(go.Bar(x=df_chart.index, y=df_chart['MACD'] - df_chart['Signal'], name='히스토그램', marker_color=colors), row=2, col=1)
+                        
+                        # 세 번째 칸: RSI
+                        fig_chart.add_trace(go.Scatter(x=df_chart.index, y=df_chart['RSI'], name='RSI', line=dict(color='purple', width=1)), row=3, col=1)
+                        fig_chart.add_hline(y=rsi_sell, row=3, col=1, line_dash='dash', line_color='red', annotation_text="과매수 구간")
+                        fig_chart.add_hline(y=rsi_buy, row=3, col=1, line_dash='dash', line_color='green', annotation_text="과매도 구간")
+                        
+                        fig_chart.update_layout(height=800, margin=dict(t=30, b=10, l=10, r=10), xaxis_rangeslider_visible=False)
+                        st.plotly_chart(fig_chart, use_container_width=True)
+                        
+                        # 6. 하단 상태 요약
+                        last_row = df_chart.iloc[-1]
+                        st.markdown(f"#### 💡 **{sel_stock_label}** 현재 상태 요약 (최근 거래일)")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("📊 RSI 수치", f"{last_row['RSI']:.1f}", "과매수 ⚠️" if last_row['RSI'] > rsi_sell else "과매도 🟢" if last_row['RSI'] < rsi_buy else "중립")
+                        c2.metric("📈 MACD 추세", "상승세 유지" if last_row['MACD'] > last_row['Signal'] else "하락세 주의")
+                        c3.metric("📉 이평선 배열", "단기 정배열" if last_row['MA_S'] > last_row['MA_L'] else "단기 역배열")
+                    
