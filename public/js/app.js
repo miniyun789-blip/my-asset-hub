@@ -86,11 +86,99 @@
     }
 
   }
-  const field=(name,label,value,type='text',extra='')=>`<label class="field">${label}<input name="${name}" type="${type}" value="${safe(value??'')}" ${extra}></label>`;
-  function openEditor(type,id=null,selected=null){editType=type;editId=id;const obj=(type==='stock'?state.stocks:state.savings).find(x=>x.id===id)||selected||{};editQuoteMeta=type==='stock'&&id?{quoteAsOf:obj.quoteAsOf||'',quoteSource:obj.quoteSource||'',quoteKind:obj.quoteKind||'',quoteError:obj.quoteError||''}:null;$('#editor-title').textContent=`${id?'수정':'추가'} · ${type==='stock'?'투자 자산':'은행 자산'}`;
-    if(type==='stock'){$('#editor-fields').innerHTML=`<div style="grid-column:1/-1"><button type="button" class="btn primary" id="open-market-search">종목/티커 검색</button></div>`+field('name','종목명',obj.name,'text','required')+field('ticker','티커 (선택)',obj.ticker)+field('market','시장 (검색으로 자동 입력)',obj.market||'')+field('buy','매수 단가',obj.buy??'','number','min="0" step="any" required')+field('quantity','보유 수량',obj.quantity??'','number','min="0" step="any" required')+field('price','현재가 (자동 조회)',obj.price,'number','min="0" step="any" readonly placeholder="종목 선택 시 자동 조회"')+`<label class="field">통화<select name="foreign"><option value="false" ${!obj.foreign?'selected':''}>KRW (국내·가상화폐)</option><option value="true" ${obj.foreign?'selected':''}>USD (해외 주식)</option></select></label>`+field('buyFx','매수 당시 USD/KRW 환율 (선택)',obj.buyFx,'number','min="1" step="any"')+`<label class="field">리스크 분류<select name="risk">${[...new Set([...state.config.risks,...(obj.risk?[obj.risk]:[])])].map(r=>`<option value="${safe(r)}" ${obj.risk===r?'selected':''}>${safe(r)}</option>`).join('')}</select></label>`}
-    else{$('#editor-fields').innerHTML=`<label class="field">종류<select name="type">${['적금','주택청약','예금','파킹통장'].map(t=>`<option ${obj.type===t?'selected':''}>${t}</option>`).join('')}</select></label>`+field('name','상품명',obj.name,'text','required')+field('amount','회차별 납입액 또는 현재 잔액 (원)',obj.amount??'','number','min="0" step="1" required')+field('current','현재 납입 회차',obj.current??1,'number','min="0" step="1" required')+field('total','총 만기 회차',obj.total??1,'number','min="1" step="1" required')+field('rate','연 이율 (%) · 평가액에 미반영',obj.rate??0,'number','min="0" step="any" required')+`<p class="hint" style="grid-column:1/-1">예금·파킹통장은 입력한 현재 잔액을 그대로 사용합니다. 적금·주택청약은 회차별 납입액 × 현재 회차로 계산합니다.</p>`}
-    $('#editor').showModal()}
+
+  const field=(name,label,value,type='text',extra='')=>'<label class="field">'+label+'<input name="'+name+'" type="'+type+'" value="'+safe(value??'')+'" '+extra+'></label>';
+  let editorSearchTimer=null,editorSearchSeq=0;
+  function updateSelectedAssetSummary(){
+    const f=$('#editor-form'),box=$('#selected-asset'),buyLabel=$('#buy-price-label');
+    if(!f?.elements?.name||!box)return;
+    const name=f.elements.name.value,ticker=f.elements.ticker.value,market=f.elements.market.value,foreign=f.elements.foreign.value==='true';
+    const currency=foreign?'USD':'KRW';
+    box.textContent=name?(name+' · '+ticker+' · '+market+' · '+currency):'종목명 또는 티커를 검색해서 선택하세요.';
+    if(buyLabel)buyLabel.textContent=foreign?'매수 평단가 (USD)':'매수 평단가 (KRW)';
+  }
+  async function loadEditorQuote(){
+    const f=$('#editor-form'),status=$('#editor-quote-status');
+    if(!f?.elements?.ticker?.value)return;
+    const ticker=f.elements.ticker.value,market=f.elements.market.value,foreign=f.elements.foreign.value==='true',currency=foreign?'USD':'KRW';
+    f.elements.price.value='';
+    editQuoteMeta=null;
+    if(status)status.textContent='현재가 조회 중…';
+    try{
+      const q=await api('/api/quote?ticker='+encodeURIComponent(ticker)+'&market='+encodeURIComponent(market||'')+'&currency='+currency);
+      if(!Number.isFinite(q.price)||q.price<=0||q.currency!==currency)throw Error('가격·통화 검증 실패');
+      f.elements.price.value=q.price;
+      editQuoteMeta={quoteAsOf:q.asOf||new Date().toISOString(),quoteSource:q.source||'자동 시세',quoteKind:q.kind||'',quoteError:''};
+      if(status)status.textContent='현재가 '+Number(q.price).toLocaleString('ko-KR')+' '+currency+' · '+(q.source||'자동 시세');
+    }catch(err){
+      editQuoteMeta={quoteAsOf:'',quoteSource:'',quoteKind:'',quoteError:String(err.message||err)};
+      if(status)status.textContent='현재가 조회 실패 · 저장 전 다시 조회합니다.';
+    }
+  }
+  async function applyEditorMarketSelection(x){
+    const f=$('#editor-form');
+    if(!f||!x)return;
+    const ticker=x.ticker||x.symbol||'',currency=x.currency==='USD'?'USD':'KRW';
+    f.elements.name.value=x.name||x.symbol||ticker;
+    f.elements.ticker.value=ticker;
+    f.elements.market.value=x.market||'';
+    f.elements.foreign.value=currency==='USD'?'true':'false';
+    const lookup=$('#asset-lookup'),results=$('#asset-lookup-results');
+    if(lookup)lookup.value=f.elements.name.value;
+    if(results){results.innerHTML='';results._items=[]}
+    updateSelectedAssetSummary();
+    await loadEditorQuote();
+  }
+  async function searchEditorMarket(q){
+    const box=$('#asset-lookup-results');
+    if(!box)return;
+    q=String(q||'').trim();
+    if(q.length<1){box.innerHTML='';return}
+    const seq=++editorSearchSeq;
+    box.innerHTML='<div class="empty">검색 중…</div>';
+    try{
+      const data=await api('/api/search?q='+encodeURIComponent(q)+'&market=ALL&offset=0');
+      if(seq!==editorSearchSeq)return;
+      box._items=data.results||[];
+      box.innerHTML=box._items.length?box._items.slice(0,12).map((x,i)=>'<button type="button" class="btn" data-editor-market-pick="'+i+'" style="text-align:left;white-space:normal">'+safe(x.name)+' · '+safe(x.ticker||x.symbol)+' · '+safe(x.market)+'</button>').join(''):'<div class="empty">검색 결과가 없습니다.</div>';
+    }catch(err){
+      if(seq!==editorSearchSeq)return;
+      box._items=[];
+      box.innerHTML='<div class="empty">종목 검색 실패 · 네트워크를 확인하세요.</div>';
+    }
+  }
+  function openEditor(type,id=null,selected=null){
+    editType=type;editId=id;
+    const obj=(type==='stock'?state.stocks:state.savings).find(x=>x.id===id)||selected||{};
+    editQuoteMeta=type==='stock'&&id?{quoteAsOf:obj.quoteAsOf||'',quoteSource:obj.quoteSource||'',quoteKind:obj.quoteKind||'',quoteError:obj.quoteError||''}:null;
+    $('#editor-title').textContent=(id?'수정':'추가')+' · '+(type==='stock'?'투자 자산':'은행 자산');
+    if(type==='stock'){
+      const currency=obj.foreign?'USD':'KRW';
+      $('#editor-fields').innerHTML=
+        '<label class="field" style="grid-column:1/-1">종목명 또는 티커 검색<input id="asset-lookup" type="search" autocomplete="off" placeholder="삼성전자, 005930, AAPL" value="'+safe(obj.name||'')+'"></label>'+
+        '<div id="asset-lookup-results" class="list" style="grid-column:1/-1;max-height:220px;overflow:auto"></div>'+
+        '<div id="selected-asset" class="notice" style="grid-column:1/-1"></div>'+
+        '<input name="name" type="hidden" value="'+safe(obj.name||'')+'">'+
+        '<input name="ticker" type="hidden" value="'+safe(obj.ticker||'')+'">'+
+        '<input name="market" type="hidden" value="'+safe(obj.market||'')+'">'+
+        '<input name="foreign" type="hidden" value="'+(obj.foreign?'true':'false')+'">'+
+        '<label class="field"><span id="buy-price-label">매수 평단가 ('+currency+')</span><input name="buy" type="number" value="'+safe(obj.buy??'')+'" min="0" step="any" required></label>'+
+        '<label class="field">보유 수량<input name="quantity" type="number" value="'+safe(obj.quantity??'')+'" min="0" step="any" required></label>'+
+        '<label class="field">현재가 (자동 조회)<input name="price" type="number" value="'+safe(obj.price??'')+'" min="0" step="any" readonly placeholder="종목 선택 시 자동 조회"></label>'+
+        '<div id="editor-quote-status" class="hint" style="align-self:end">'+safe(obj.quoteError||((obj.price!=null&&obj.quoteSource)?('현재가 '+Number(obj.price).toLocaleString('ko-KR')+' '+currency+' · '+obj.quoteSource):'종목 선택 시 현재가가 자동 조회됩니다.'))+'</div>'+
+        '<label class="field">리스크 분류<select name="risk">'+[...new Set([...state.config.risks,...(obj.risk?[obj.risk]:[])])].map(r=>'<option value="'+safe(r)+'" '+(obj.risk===r?'selected':'')+'>'+safe(r)+'</option>').join('')+'</select></label>'+
+        '<p class="hint" style="grid-column:1/-1">종목명이나 티커 하나만 검색하면 종목명·티커·시장·통화·현재가가 자동으로 채워집니다. 해외 주식은 달러 기준 매수 평단만 입력하세요. 환율은 앱이 자동 적용합니다.</p>';
+      updateSelectedAssetSummary();
+    }else{
+      $('#editor-fields').innerHTML='<label class="field">종류<select name="type">'+['적금','주택청약','예금','파킹통장'].map(t=>'<option '+(obj.type===t?'selected':'')+'>'+t+'</option>').join('')+'</select></label>'+field('name','상품명',obj.name,'text','required')+field('amount','회차별 납입액 또는 현재 잔액 (원)',obj.amount??'','number','min="0" step="1" required')+field('current','현재 납입 회차',obj.current??1,'number','min="0" step="1" required')+field('total','총 만기 회차',obj.total??1,'number','min="1" step="1" required')+field('rate','연 이율 (%) · 평가액에 미반영',obj.rate??0,'number','min="0" step="any" required')+'<p class="hint" style="grid-column:1/-1">예금·파킹통장은 입력한 현재 잔액을 그대로 사용합니다. 적금·주택청약은 회차별 납입액 × 현재 회차로 계산합니다.</p>';
+    }
+    $('#editor').showModal();
+    if(type==='stock'){
+      const lookup=$('#asset-lookup');
+      lookup.oninput=e=>{clearTimeout(editorSearchTimer);const q=e.target.value.trim();editorSearchTimer=setTimeout(()=>searchEditorMarket(q),250)};
+      if(!id)lookup.focus();
+    }
+  }
   $('#editor-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.currentTarget),val=k=>String(f.get(k)||'').trim(),n=k=>Number(f.get(k));let item;if(editType==='stock'){item={id:editId||uid(),name:val('name'),ticker:val('ticker').toUpperCase(),buy:n('buy'),quantity:n('quantity'),price:val('price')===''?null:n('price'),foreign:val('foreign')==='true',risk:val('risk'),market:val('market')||(val('foreign')==='true'?'US':'KRX'),buyFx:val('buyFx')===''?null:n('buyFx')};if(item.foreign&&item.buyFx!==null&&item.buyFx<=0){toast('매수 환율은 0보다 커야 합니다.');return}}
     else item={id:editId||uid(),type:val('type'),name:val('name'),amount:n('amount'),current:n('current'),total:n('total'),rate:n('rate')};const arr=editType==='stock'?state.stocks:state.savings;const idx=arr.findIndex(x=>x.id===editId);
     if(editType==='stock'){
