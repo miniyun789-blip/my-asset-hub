@@ -1,5 +1,6 @@
 // My Asset Hub v0.6.0 — public market data only. No holdings, quantities or personal files.
-const VERSION='0.6.0';
+const VERSION='0.6.0-dev';
+const BUILD='20260926-01';
 const JSONH={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
 const out=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:JSONH});
 let master=null,masterAt=0;const quotes=new Map();
@@ -39,7 +40,7 @@ export default {async fetch(request,env){const u=new URL(request.url);if(!u.path
  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...cors,'access-control-allow-methods':'GET, OPTIONS','access-control-allow-headers':'accept'}});
  let response;
  try{if(request.method!=='GET')response=out({error:'GET만 지원합니다.'},405);
- else if(u.pathname==='/api/health')response=out({ok:true,version:VERSION});
+ else if(u.pathname==='/api/health')response=out({ok:true,version:VERSION,build:BUILD});
  else if(u.pathname==='/api/search'){const offset=Number(u.searchParams.get('offset')||0);if(!Number.isInteger(offset)||offset<0)throw Error('검색 페이지 값이 잘못되었습니다.');response=out(await search((u.searchParams.get('q')||'').trim().slice(0,100),u.searchParams.get('market')||'ALL',offset,env));}
  else if(u.pathname==='/api/quote'||u.pathname==='/api/crypto')response=out(await quote(u.searchParams.get('ticker')||u.searchParams.get('symbol')||'',u.searchParams.get('market')||'',u.searchParams.get('currency')||''));
  else if(u.pathname==='/api/fx')response=out(await fx());else response=out({error:'API 경로가 없습니다.'},404);
