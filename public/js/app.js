@@ -174,12 +174,26 @@
   $('#import-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>5_000_000)throw Error('5MB 이하의 JSON을 사용하세요.');const raw=JSON.parse(await file.text());if(!Object.hasOwn(raw,'stocks')||!Object.hasOwn(raw,'savings'))throw Error('자산 백업 파일이 아닙니다.');previewImport(normalize({...raw,history:raw.history??state.history}),'JSON')}catch(err){alert('복원 실패: '+err.message)}finally{e.target.value=''}};
   $('#apply-import').onclick=()=>{if(!pendingImport)return;const previous=state,wasBlocked=storageBlocked;try{const raw=localStorage.getItem(KEY);if(raw)localStorage.setItem(KEY+'-recovery',raw);state=pendingImport;storageBlocked=false;if(!persist({record:false,cloud:false}))throw Error('저장 공간이 부족합니다.');pendingImport=null;$('#import-preview').close();startRefreshTimer();toast('백업 데이터를 적용했습니다.')}catch(e){state=previous;storageBlocked=wasBlocked;render();alert('적용 실패: '+e.message)}};
   $('#raw-backup').onclick=()=>{const raw=localStorage.getItem(KEY);if(!raw){toast('저장 원본이 없습니다.');return}const url=URL.createObjectURL(new Blob([raw],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='my-asset-hub-recovery-raw.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-  let installPrompt=null,registration=null;
+  let installPrompt=null;
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#install-app').hidden=false});
   $('#install-app').onclick=async()=>{if(!installPrompt)return;await installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#install-app').hidden=true};
   $('#install-guide').onclick=()=>alert('Android: Chrome의 메뉴 → 앱 설치 또는 홈 화면에 추가.\niPhone: Safari의 공유 → 홈 화면에 추가 → 웹 앱으로 열기.\nHTTPS로 배포된 주소에서 설치하세요. 설치 전·후 저장소가 다를 수 있으므로 JSON 백업 후 필요하면 복원하세요.');
-  $('#update-app').onclick=()=>{if(document.querySelector('dialog[open]')&&!confirm('열린 입력창을 닫고 업데이트할까요? 저장하지 않은 입력은 반영되지 않습니다.'))return;registration?.waiting?.postMessage({type:'SKIP_WAITING'})};
-  if('serviceWorker'in navigator&&location.protocol!=='file:')window.addEventListener('load',async()=>{try{registration=await navigator.serviceWorker.register('./service-worker.js',{updateViaCache:'none'});if(registration.waiting)$('#update-app').hidden=false;registration.addEventListener('updatefound',()=>{const sw=registration.installing;sw?.addEventListener('statechange',()=>{if(sw.state==='installed'&&navigator.serviceWorker.controller)$('#update-app').hidden=false})});let changing=false;let previouslyControlled=!!navigator.serviceWorker.controller;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(previouslyControlled&&!changing){changing=true;location.reload()}else previouslyControlled=true});registration.update().catch(()=>{})}catch(e){toast('오프라인 설치 준비 실패: '+e.message)}});
+  $('#update-app').hidden=true;
+
+  // v0.6.0 recovery: remove legacy service workers/caches that could break navigation.
+  // PWA installation continues via the web app manifest; offline caching is temporarily disabled for stability.
+  if('serviceWorker'in navigator&&location.protocol!=='file:'){
+    window.addEventListener('load',async()=>{
+      try{
+        const regs=await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r=>r.unregister()));
+        if('caches'in window){
+          const keys=await caches.keys();
+          await Promise.all(keys.filter(k=>k.startsWith('my-asset-hub-')).map(k=>caches.delete(k)));
+        }
+      }catch(e){console.warn('legacy PWA cleanup failed',e)}
+    });
+  }
   window.addEventListener('resize',()=>{if(tab==='dashboard')renderHistory()});window.addEventListener('online',()=>{renderMarketStatus();refreshMarket(false)});window.addEventListener('offline',renderMarketStatus);
   window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=normalize(JSON.parse(e.newValue));render()}catch{toast('다른 탭의 데이터를 확인하세요.')}}});
   // Testable existing calculations. No personal data leaves the device through this interface.
