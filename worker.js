@@ -33,7 +33,7 @@ export async function quote(symbol,market='',expectedCurrency=''){
  if(expectedCurrency&&result.currency!==expectedCurrency)throw Error('자산 통화와 시세 통화가 다릅니다.');result.fetchedAt=new Date().toISOString();quotes.set(key,{saved:Date.now(),data:result});if(quotes.size>1000)quotes.delete(quotes.keys().next().value);return result;
 }
 export async function fx(){const q=await quote('KRW=X','','KRW');return {...q,pair:'USD/KRW',rate:q.price}}
-export default {async fetch(request,env){const u=new URL(request.url);if(!u.pathname.startsWith('/api/')){if(u.pathname==='/'||u.pathname===''){return env.ASSETS.fetch(new URL('/index.html',request.url));}return env.ASSETS.fetch(request);}
+export default {async fetch(request,env){const u=new URL(request.url);if(!u.pathname.startsWith('/api/'))return env.ASSETS.fetch(request);
  const origin=request.headers.get('Origin'),allowed=(env.ALLOWED_ORIGIN||'').split(',').map(x=>x.trim()).filter(Boolean);if(origin&&origin!==u.origin&&!allowed.includes(origin))return out({error:'허용되지 않은 앱 주소입니다.'},403);
  const cors=origin?{'access-control-allow-origin':origin,'vary':'Origin'}:{};
  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...cors,'access-control-allow-methods':'GET, OPTIONS','access-control-allow-headers':'accept'}});
