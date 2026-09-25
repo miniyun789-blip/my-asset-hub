@@ -1,0 +1,16 @@
+node_modules/
+.wrangler/
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+scripts/catalog-cache.json
+live-results.json
+private/
+backups/
+*.xlsx
+*.xls
+my-asset-hub-*.json
+my-asset-hub-recovery-raw.json
+test-artifacts/
