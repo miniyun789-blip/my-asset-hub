@@ -42,7 +42,7 @@
   function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.remove('hidden');setTimeout(()=>el.classList.add('hidden'),3200)}
   function calc(){
     const fx=state.config.fx;
-    const stocks=state.stocks.map(s=>{const p=s.price===null?s.buy:s.price;const value=p*s.quantity*(s.foreign?fx:1);const cost=s.buy*s.quantity*(s.foreign?(s.buyFx||fx):1);return {...s,value,cost,quote:p,estimated:s.price===null}});
+    const stocks=state.stocks.map(s=>{const p=s.price===null?s.buy:s.price;const value=p*s.quantity*(s.foreign?fx:1);const cost=s.buy*s.quantity*(s.foreign?fx:1);return {...s,value,cost,quote:p,estimated:s.price===null}});
     const banks=state.savings.map(s=>({...s,value:s.amount*(['예금','파킹통장'].includes(s.type)?1:s.current),fixed:!['예금','파킹통장'].includes(s.type)}));
     const stockTotal=stocks.reduce((a,s)=>a+s.value,0),bankTotal=banks.reduce((a,s)=>a+s.value,0),cost=stocks.reduce((a,s)=>a+s.cost,0)+bankTotal;
     return {stocks,banks,stockTotal,bankTotal,cost,total:stockTotal+bankTotal};
@@ -111,7 +111,8 @@
     const fx=Number(f.elements.fx.value);state.config={...state.config,target:Number(f.elements.target.value),fx,risks,refreshMinutes:Number(f.elements.refreshMinutes.value),...(fx!==state.config.fx?{fxSource:'수동 입력',fxAsOf:new Date().toISOString(),fxError:''}:{})};$('#settings').close();if(persist()){startRefreshTimer();toast('설정이 저장되었습니다.')}};
   document.addEventListener('change',e=>{if(e.target.dataset.risk!==undefined){state.riskTargets[e.target.dataset.risk]=Math.max(0,Math.min(100,num(e.target.value)));persist({record:false})}if(e.target.dataset.allocation!==undefined){state.allocations[e.target.dataset.allocation]=Math.max(0,Math.min(100,num(e.target.value)));persist({record:false})}});
   $('#export-btn').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`my-asset-hub-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-  const APP_VERSION='0.6.0';
+  const APP_VERSION='0.6.0-dev';
+  const BUILD_ID='20260926-01';
   let refreshBusy=false,autoTimer=null,searchTimer=null,searchOffset=0,searchSequence=0,pendingImport=null;
   const API_BASE=String(window.ASSET_HUB_API_BASE||'').replace(/\/$/,'');
   async function api(path){const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);try{const r=await fetch(API_BASE+path,{signal:ctl.signal,headers:{accept:'application/json'},cache:'no-store'});const d=await r.json();if(!r.ok||d.error)throw Error(d.error||`API ${r.status}`);return d}finally{clearTimeout(timer)}}
