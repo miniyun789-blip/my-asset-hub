@@ -116,6 +116,18 @@
   let refreshBusy=false,autoTimer=null,searchTimer=null,searchOffset=0,searchSequence=0,pendingImport=null;
   const API_BASE=String(window.ASSET_HUB_API_BASE||'').replace(/\/$/,'');
   async function api(path){const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);try{const r=await fetch(API_BASE+path,{signal:ctl.signal,headers:{accept:'application/json'},cache:'no-store'});const d=await r.json();if(!r.ok||d.error)throw Error(d.error||`API ${r.status}`);return d}finally{clearTimeout(timer)}}
+  async function checkBuildStatus(){
+    const el=$('#build-status'),versionEl=$('#version-label');
+    if(versionEl)versionEl.textContent=`v${APP_VERSION} · build ${BUILD_ID}`;
+    if(!el)return;
+    el.textContent=`build ${BUILD_ID} 확인 중…`;
+    try{
+      const h=await api(`/api/health?_=${Date.now()}`);
+      if(h.build===BUILD_ID){el.textContent=`build ${BUILD_ID} 적용됨`;el.title='현재 화면과 서버 빌드가 일치합니다.'}
+      else if(h.build){el.textContent=`새 서버 build ${h.build} · 새로고침 필요`;el.title='현재 HTML/JS와 서버 빌드가 다릅니다.'}
+      else{el.textContent=`build ${BUILD_ID} · 서버 구버전`;}
+    }catch(e){el.textContent=`build ${BUILD_ID} · 서버 확인 실패`;el.title=e.message}
+  }
   function renderMarketStatus(){const cfg=state.config;$('#market-status').textContent=`${navigator.onLine?'온라인':'오프라인 · 저장값 사용'} · USD/KRW ${cfg.fx.toLocaleString('ko-KR')} · ${cfg.fxSource||'초기 예시값(자동 조회 대기)'}${cfg.fxAsOf?' · '+new Date(cfg.fxAsOf).toLocaleString('ko-KR'):''}${cfg.fxError?' · 환율 조회 실패, 이전값 유지':''}`;}
   function startRefreshTimer(){clearInterval(autoTimer);if(state.config.refreshMinutes>0)autoTimer=setInterval(()=>{if(navigator.onLine&&!document.hidden)refreshMarket(false)},state.config.refreshMinutes*60000)}
   async function refreshMarket(show=true){if(refreshBusy||storageBlocked)return;refreshBusy=true;$('#refresh-market').disabled=true;const before=state;let success=0,failed=0;try{
@@ -199,5 +211,5 @@
   window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=normalize(JSON.parse(e.newValue));render()}catch{toast('다른 탭의 데이터를 확인하세요.')}}});
   // Testable existing calculations. No personal data leaves the device through this interface.
   window.AssetHub={version:APP_VERSION,normalize,calc,workbookRows,readWorkbook,getState:()=>structuredClone(state)};
-  if(storageBlocked)render();else persist();startRefreshTimer();if(navigator.onLine)setTimeout(()=>refreshMarket(false),800);
+  if(storageBlocked)render();else persist();startRefreshTimer();checkBuildStatus();if(navigator.onLine)setTimeout(()=>refreshMarket(false),800);
 })();
