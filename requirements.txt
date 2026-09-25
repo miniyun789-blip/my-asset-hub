@@ -1,8 +1,0 @@
-streamlit
-pandas
-plotly
-yfinance
-beautifulsoup4
-requests
-finance-datareader
-extra-streamlit-components
