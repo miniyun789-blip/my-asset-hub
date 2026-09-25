@@ -179,21 +179,103 @@
       if(!id)lookup.focus();
     }
   }
-  $('#editor-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.currentTarget),val=k=>String(f.get(k)||'').trim(),n=k=>Number(f.get(k));let item;if(editType==='stock'){item={id:editId||uid(),name:val('name'),ticker:val('ticker').toUpperCase(),buy:n('buy'),quantity:n('quantity'),price:val('price')===''?null:n('price'),foreign:val('foreign')==='true',risk:val('risk'),market:val('market')||(val('foreign')==='true'?'US':'KRX'),buyFx:val('buyFx')===''?null:n('buyFx')};if(item.foreign&&item.buyFx!==null&&item.buyFx<=0){toast('매수 환율은 0보다 커야 합니다.');return}}
-    else item={id:editId||uid(),type:val('type'),name:val('name'),amount:n('amount'),current:n('current'),total:n('total'),rate:n('rate')};const arr=editType==='stock'?state.stocks:state.savings;const idx=arr.findIndex(x=>x.id===editId);
+
+  $('#editor-form').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget),val=k=>String(fd.get(k)||'').trim(),n=k=>Number(fd.get(k));
+    let item;
     if(editType==='stock'){
-      if(item.ticker.endsWith('.KQ'))item.market='KOSDAQ';if(item.ticker.endsWith('.KS'))item.market='KOSPI';item.ticker=item.ticker.replace(/\.(KS|KQ)$/,'');if(!item.foreign&&/^\d{1,6}$/.test(item.ticker))item.ticker=item.ticker.padStart(6,'0');
-      const old=arr[idx];if(editQuoteMeta)Object.assign(item,editQuoteMeta);else if(old&&old.price===item.price&&old.ticker===item.ticker&&old.foreign===item.foreign)Object.assign(item,{quoteAsOf:old.quoteAsOf,quoteSource:old.quoteSource,quoteError:old.quoteError,quoteKind:old.quoteKind});else Object.assign(item,{quoteAsOf:'',quoteSource:'자동 조회 대기',quoteError:'',quoteKind:''});
+      item={id:editId||uid(),name:val('name'),ticker:val('ticker').toUpperCase(),buy:n('buy'),quantity:n('quantity'),price:val('price')===''?null:n('price'),foreign:val('foreign')==='true',risk:val('risk'),market:val('market')||(val('foreign')==='true'?'US':'KRX'),buyFx:null};
+      if(!item.name||!item.ticker){toast('종목명 또는 티커를 검색해서 종목을 선택하세요.');return}
+      if(!(item.price>0)){
+        try{
+          const currency=item.foreign?'USD':'KRW';
+          const q=await api('/api/quote?ticker='+encodeURIComponent(item.ticker)+'&market='+encodeURIComponent(item.market||'')+'&currency='+currency);
+          if(!Number.isFinite(q.price)||q.price<=0||q.currency!==currency)throw Error('가격·통화 검증 실패');
+          item.price=q.price;
+          editQuoteMeta={quoteAsOf:q.asOf||new Date().toISOString(),quoteSource:q.source||'자동 시세',quoteKind:q.kind||'',quoteError:''};
+          if(e.currentTarget.elements.price)e.currentTarget.elements.price.value=q.price;
+        }catch(err){
+          toast('현재가를 불러오지 못했습니다. 잠시 후 다시 저장해 주세요.');
+          return;
+        }
+      }
+    }else{
+      item={id:editId||uid(),type:val('type'),name:val('name'),amount:n('amount'),current:n('current'),total:n('total'),rate:n('rate')};
+    }
+    const arr=editType==='stock'?state.stocks:state.savings;
+    const idx=arr.findIndex(x=>x.id===editId);
+    if(editType==='stock'){
+      if(item.ticker.endsWith('.KQ'))item.market='KOSDAQ';
+      if(item.ticker.endsWith('.KS'))item.market='KOSPI';
+      item.ticker=item.ticker.replace(/\.(KS|KQ)$/,'');
+      if(!item.foreign&&/^\d{1,6}$/.test(item.ticker))item.ticker=item.ticker.padStart(6,'0');
+      const old=arr[idx];
+      if(editQuoteMeta)Object.assign(item,editQuoteMeta);
+      else if(old&&old.price===item.price&&old.ticker===item.ticker&&old.foreign===item.foreign)Object.assign(item,{quoteAsOf:old.quoteAsOf,quoteSource:old.quoteSource,quoteError:old.quoteError,quoteKind:old.quoteKind});
+      else Object.assign(item,{quoteAsOf:new Date().toISOString(),quoteSource:'자동 시세',quoteError:'',quoteKind:''});
       const same=idx<0&&item.ticker?arr.find(x=>x.ticker===item.ticker&&x.foreign===item.foreign):null;
-      if(same){if(!confirm('이미 보유한 종목입니다. 입력한 수량을 추가 매수로 합산하고 가중 평단을 계산할까요?'))return;
-        const q=same.quantity+item.quantity,usdCost=same.buy*same.quantity+item.buy*item.quantity,krwCost=same.buy*same.quantity*(same.buyFx||state.config.fx)+item.buy*item.quantity*(item.buyFx||state.config.fx);
-        item={...same,quantity:q,buy:q?usdCost/q:0,buyFx:same.foreign&&usdCost?krwCost/usdCost:null,risk:item.risk};
-        const next=structuredClone(state);next.stocks[next.stocks.findIndex(x=>x.id===same.id)]=item;try{state=normalize(next)}catch(err){toast(err.message);return}$('#editor').close();if(persist())toast('추가 매수를 합산했습니다.');return;
+      if(same){
+        if(!confirm('이미 보유한 종목입니다. 입력한 수량을 추가 매수로 합산하고 가중 평단을 계산할까요?'))return;
+        const q=same.quantity+item.quantity,totalCost=same.buy*same.quantity+item.buy*item.quantity;
+        const merged={...same,quantity:q,buy:q?totalCost/q:0,buyFx:null,risk:item.risk,price:item.price||same.price};
+        if(editQuoteMeta)Object.assign(merged,editQuoteMeta);
+        const next=structuredClone(state);
+        next.stocks[next.stocks.findIndex(x=>x.id===same.id)]=merged;
+        try{state=normalize(next)}catch(err){toast(err.message);return}
+        $('#editor').close();
+        if(persist())toast('추가 매수를 합산했습니다.');
+        return;
       }
     }
-    const next=structuredClone(state),dest=editType==='stock'?next.stocks:next.savings;if(idx<0)dest.push(item);else dest[idx]=item;
-    try{state=normalize(next)}catch(err){toast(err.message);return}$('#editor').close();if(persist()){toast('자산이 저장되었습니다.');if(editType==='stock'&&item.ticker&&navigator.onLine)setTimeout(()=>refreshMarket(false),0)}});
-  document.addEventListener('click',async e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.close!==undefined){t.closest('dialog').close();return}if(t.dataset.tab){tab=t.dataset.tab;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===tab));if(tab==='dashboard')renderHistory();return}if(t.dataset.period){period=t.dataset.period;document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('selected',x.dataset.period===period));renderHistory();return}if(t.id==='open-market-search'){openMarketSearch();return}if(t.dataset.marketPick!==undefined){const x=$('#market-results')._items?.[Number(t.dataset.marketPick)];if(x){const f=$('#editor-form');const ticker=x.ticker||x.symbol;const currency=x.currency==='USD'?'USD':'KRW';f.elements.name.value=x.name||x.symbol;f.elements.ticker.value=ticker;f.elements.market.value=x.market;f.elements.foreign.value=currency==='USD'?'true':'false';f.elements.price.value='';editQuoteMeta=null;$('#market-search').close();toast('종목 선택 완료 · 현재가 조회 중…');try{const q=await api(`/api/quote?ticker=${encodeURIComponent(ticker)}&market=${encodeURIComponent(x.market||'')}&currency=${currency}`);if(Number.isFinite(q.price)&&q.price>0&&q.currency===currency){f.elements.price.value=q.price;editQuoteMeta={quoteAsOf:q.asOf||new Date().toISOString(),quoteSource:q.source||'자동 시세',quoteKind:q.kind||'',quoteError:''};toast(`${x.name||ticker} 현재가 ${Number(q.price).toLocaleString('ko-KR')} ${currency} 자동 입력`)}else throw Error('가격·통화 검증 실패')}catch(err){editQuoteMeta={quoteAsOf:'',quoteSource:'',quoteKind:'',quoteError:String(err.message||err)};toast('현재가 조회 실패 · 저장 후 자동 갱신을 다시 시도합니다.')}}return}if(t.dataset.edit){openEditor(t.dataset.edit,t.dataset.id);return}if(t.dataset.delete){const arr=t.dataset.delete==='stock'?state.stocks:state.savings;const entry=arr.find(x=>x.id===t.dataset.id);if(entry&&confirm(`${entry.name} 자산을 삭제할까요?`)){arr.splice(arr.indexOf(entry),1);delete state.allocations[entry.id];if(persist())toast('삭제했습니다.')}return}});
+    const next=structuredClone(state),dest=editType==='stock'?next.stocks:next.savings;
+    if(idx<0)dest.push(item);else dest[idx]=item;
+    try{state=normalize(next)}catch(err){toast(err.message);return}
+    $('#editor').close();
+    if(persist()){
+      toast('자산이 저장되었습니다.');
+      if(editType==='stock'&&item.ticker&&navigator.onLine)setTimeout(()=>refreshMarket(false),0);
+    }
+  });
+  document.addEventListener('click',async e=>{
+    const t=e.target.closest('button');
+    if(!t)return;
+    if(t.dataset.close!==undefined){t.closest('dialog').close();return}
+    if(t.dataset.tab){
+      tab=t.dataset.tab;
+      document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
+      document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===tab));
+      if(tab==='dashboard')renderHistory();
+      return;
+    }
+    if(t.dataset.period){
+      period=t.dataset.period;
+      document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('selected',x.dataset.period===period));
+      renderHistory();
+      return;
+    }
+    if(t.dataset.editorMarketPick!==undefined){
+      const x=$('#asset-lookup-results')._items?.[Number(t.dataset.editorMarketPick)];
+      if(x)await applyEditorMarketSelection(x);
+      return;
+    }
+    if(t.dataset.marketPick!==undefined){
+      const x=$('#market-results')._items?.[Number(t.dataset.marketPick)];
+      if(x){$('#market-search').close();await applyEditorMarketSelection(x)}
+      return;
+    }
+    if(t.dataset.edit){openEditor(t.dataset.edit,t.dataset.id);return}
+    if(t.dataset.delete){
+      const arr=t.dataset.delete==='stock'?state.stocks:state.savings;
+      const entry=arr.find(x=>x.id===t.dataset.id);
+      if(entry&&confirm(entry.name+' 자산을 삭제할까요?')){
+        arr.splice(arr.indexOf(entry),1);
+        delete state.allocations[entry.id];
+        if(persist())toast('삭제했습니다.');
+      }
+      return;
+    }
+  });
   $('#add-stock').onclick=()=>openEditor('stock');$('#add-bank').onclick=()=>openEditor('bank');$('#backup-btn').onclick=()=>$('#backup').showModal();$('#refresh-market').onclick=()=>refreshMarket(true);$('#settings-btn').onclick=()=>{const f=$('#settings-form');f.elements.target.value=state.config.target;f.elements.fx.value=state.config.fx;f.elements.risks.value=state.config.risks.join(', ');f.elements.refreshMinutes.value=state.config.refreshMinutes??5;$('#settings').showModal()};
   $('#settings-form').onsubmit=e=>{e.preventDefault();const f=e.currentTarget,risks=f.elements.risks.value.split(',').map(x=>x.trim()).filter(Boolean);if(!risks.length||new Set(risks).size!==risks.length){toast('리스크 분류를 중복 없이 입력하세요.');return}if(!risks.includes('안전')||risks.includes('고정(은행)')||state.stocks.some(s=>!risks.includes(s.risk))){toast('사용 중인 분류와 안전 분류는 유지하고 고정(은행)은 제외하세요.');return}
     const fx=Number(f.elements.fx.value);state.config={...state.config,target:Number(f.elements.target.value),fx,risks,refreshMinutes:Number(f.elements.refreshMinutes.value),...(fx!==state.config.fx?{fxSource:'수동 입력',fxAsOf:new Date().toISOString(),fxError:''}:{})};$('#settings').close();if(persist()){startRefreshTimer();toast('설정이 저장되었습니다.')}};
