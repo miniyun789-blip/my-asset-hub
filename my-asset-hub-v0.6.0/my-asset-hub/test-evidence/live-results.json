@@ -1,0 +1,95 @@
+[
+  {
+    "name": "USD/KRW",
+    "status": "PASS",
+    "data": {
+      "symbol": "KRW=X",
+      "price": 1357.91,
+      "currency": "KRW",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-25T07:42:59.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-25T07:43:07.807Z",
+      "pair": "USD/KRW",
+      "rate": 1357.91
+    }
+  },
+  {
+    "name": "삼성전자",
+    "status": "PASS",
+    "data": {
+      "symbol": "005930.KS",
+      "price": 285500,
+      "currency": "KRW",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-23T06:30:06.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-25T07:43:16.748Z"
+    }
+  },
+  {
+    "name": "KOSDAQ 에코프로비엠",
+    "status": "PASS",
+    "data": {
+      "symbol": "247540.KQ",
+      "price": 105000,
+      "currency": "KRW",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-23T06:30:01.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-25T07:43:25.719Z"
+    }
+  },
+  {
+    "name": "AAPL",
+    "status": "PASS",
+    "data": {
+      "symbol": "AAPL",
+      "price": 335.92,
+      "currency": "USD",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-24T20:00:01.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-25T07:43:34.723Z"
+    }
+  },
+  {
+    "name": "미국 ETF SPY",
+    "status": "PASS",
+    "data": {
+      "symbol": "SPY",
+      "price": 767.18,
+      "currency": "USD",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-24T20:00:00.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-25T07:43:43.630Z"
+    }
+  },
+  {
+    "name": "국내 ETF",
+    "status": "PASS",
+    "data": {
+      "symbol": "069500.KS",
+      "price": 113145,
+      "currency": "KRW",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-23T06:30:20.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-25T07:43:52.640Z"
+    }
+  },
+  {
+    "name": "Crypto",
+    "status": "PASS",
+    "data": {
+      "symbol": "KRW-BTC",
+      "price": 114477000,
+      "currency": "KRW",
+      "source": "Upbit",
+      "asOf": "2026-09-25T07:44:00.626Z",
+      "kind": "최근 체결가",
+      "fetchedAt": "2026-09-25T07:44:01.966Z"
+    }
+  }
+]

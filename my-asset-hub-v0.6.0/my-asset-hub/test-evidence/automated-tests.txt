@@ -1,0 +1,49 @@
+
+> my-asset-hub@0.6.0 test
+> node --test tests/worker.test.mjs tests/service-worker.test.mjs && node tests/data.cjs
+
+✔ SW install precaches existing files under project subpath (3.308603ms)
+✔ SW activation preserves unrelated caches (1.139737ms)
+✔ SW never intercepts market API and responds offline navigation (2.450841ms)
+✔ SW activates update only on explicit message (0.564891ms)
+✔ 국내 이름 (31.071921ms)
+✔ 국내 코드 (1.909876ms)
+✔ KOSDAQ (2.029817ms)
+✔ 미국 종목 (1.723676ms)
+✔ 미국 티커 (1.937408ms)
+✔ NYSE (1.353197ms)
+✔ 국내 ETF (0.814166ms)
+✔ 미국 ETF (1.558853ms)
+✔ Upbit KRW (1.053557ms)
+✔ All listed-market pagination (1.833021ms)
+✔ NASDAQ/ARCA exchange classification (0.186742ms)
+✔ Quote validates foreign currency and positive price (2.001795ms)
+✔ Invalid quote is an error, never 0 (0.349006ms)
+✔ CORS permits configured GitHub origin only (1.053176ms)
+✔ Unknown API does not return HTML app (0.297658ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 138.352877
+PASS USD evaluation, buy FX, total, profit
+PASS additional buy weighted average and FX
+PASS stock edit
+PASS all four bank types: deposits not multiplied
+PASS invalid installment count rejected
+PASS legacy missing history, numeric ticker, FALSE, amount aliases
+PASS invalid and duplicate data rejected
+PASS rebalance invalid targets blocked and fixed amounts
+PASS rebalance USD unit conversion
+PASS Excel six sheets, requested schema and actual binary roundtrip
+PASS legacy v0.5 Excel without history preserves history
+PASS JSON roundtrip and local persistence
+PASS UI automatic quote/FX integration with fixture
+PASS failed quote/FX retain prior values with error status
+PASS delete final asset records zero
+PASS corrupt raw storage is protected
+PASS unexpected alerts
+17 DOM/data tests PASS (not a real browser or installation test)

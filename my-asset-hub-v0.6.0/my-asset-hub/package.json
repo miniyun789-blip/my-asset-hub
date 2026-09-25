@@ -1,0 +1,20 @@
+{
+  "name": "my-asset-hub",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "node --check public/js/app.js && node --check worker.js && node --check public/service-worker.js",
+    "test": "node --test tests/worker.test.mjs tests/service-worker.test.mjs && node tests/data.cjs",
+    "test:browser": "node tests/pwa.cjs && node tests/ui.cjs",
+    "test:live": "node scripts/live_test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.1",
+    "playwright": "^1.63.0",
+    "undici": "^8.11.2",
+    "wrangler": "^4.0.0"
+  }
+}
