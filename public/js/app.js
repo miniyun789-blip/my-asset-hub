@@ -285,8 +285,8 @@
   $('#settings-form').onsubmit=saveSettings;
   document.addEventListener('change',e=>{if(e.target.dataset.risk!==undefined){state.riskTargets[e.target.dataset.risk]=Math.max(0,Math.min(100,num(e.target.value)));state=Portfolio.distribute(state,'equal',true);persist({record:false})}if(e.target.dataset.lock!==undefined){if(e.target.checked){quantityLocked.add(e.target.dataset.lock);const x=Portfolio.items(state).find(x=>x.id===e.target.dataset.lock);state.allocations[x.id]=x.value/Math.max(calc().total,1)*100}else quantityLocked.delete(e.target.dataset.lock);persist({record:false})}if(e.target.dataset.allocation!==undefined){state.allocations[e.target.dataset.allocation]=Math.max(0,Math.min(100,num(e.target.value)));persist({record:false})}});
   $('#export-btn').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`my-asset-hub-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-  const APP_VERSION='0.8.0-beta.2';
-  const BUILD_ID='20260928-beta-02';
+  const APP_VERSION='0.8.0';
+  const BUILD_ID='20260928-prod-01';
   let refreshBusy=false,autoTimer=null,searchTimer=null,searchOffset=0,searchSequence=0,pendingImport=null;
   const API_BASE=String(window.ASSET_HUB_API_BASE||'').replace(/\/$/,'');
   async function api(path){const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);try{const r=await fetch(API_BASE+path,{signal:ctl.signal,headers:{accept:'application/json'},cache:'no-store'});const d=await r.json();if(!r.ok||d.error)throw Error(d.error||`API ${r.status}`);return d}finally{clearTimeout(timer)}}
