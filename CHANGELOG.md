@@ -1,5 +1,16 @@
 # 변경 기록
 
+## v0.8.0 · build 20260928-prod-01 · 사용자 테스트 승격
+
+### Promoted
+- 독립 검증을 마친 v0.8.0-beta.2 코드를 실제 휴대폰 사용자 테스트용 v0.8.0으로 승격.
+- Worker 대상은 기존 `my-asset-hub`로 전환하되 화면에는 TEST 표시를 유지해 검증 단계임을 명확히 함.
+- v0.7 직전 main은 `backup/pre-v0.8-20260928`에 보존.
+
+### Verification basis
+- 승격 전 93개 테스트/시나리오 PASS, npm check/test/browser/live PASS.
+- 실제 Android/iPhone 설치 및 배포 후 build 일치는 사용자 테스트 단계에서 최종 확인.
+
 ## v0.8.0-beta.2 · build 20260928-beta-02 · 독립 검증
 
 ### Fixed
