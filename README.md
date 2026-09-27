@@ -1,3 +1,35 @@
+# My Asset Hub · TEST v0.8.0-beta.1
+
+**build `20260927-beta-01` · feature/v0.8.0-asset-flow-rebalance.** 운영 main을 수정하지 않고 이 브랜치에서 시험합니다. 금융기관 연결 또는 주문 전송은 하지 않습니다.
+
+## 처음 시작
+
+1. 기존 v0.7 앱에서 JSON/Excel 백업을 먼저 내려받습니다.
+2. 이 브랜치를 복제해 `npm ci`, `npm run check`, `npm test`를 실행합니다. 브라우저 검증에는 Playwright용 Chromium이 필요합니다.
+3. `npm run dev`로 로컬에서 실행합니다. 화면의 `TEST · v0.8.0-beta.1 · build 20260927-beta-01`과 `/api/health`의 버전 및 build를 비교합니다.
+4. 자산 관리에서 잔액을 직접 입력하고 위험군을 지정합니다. 설정에서 월 정기수입과 정기 납입의 자동 반영을 별도로 켭니다. 현금 잔액 안에서 월 투자 계획을 확인하고 실제 체결을 기록합니다.
+5. v0.7 데이터가 있으면 기존 저장 키 `my-asset-hub-beta-v3`에서 `my-asset-hub-beta-v4`로 자동 복사·변환합니다. 구 저장 키는 남으며 `<새 키>-before-migration`에 최초 이행 전 원본을 저장합니다. 유효하지 않은 데이터는 저장을 차단합니다.
+
+## 테스트 배포 및 설치
+
+- GitHub: `feature/v0.8.0-asset-flow-rebalance` 브랜치를 테스트 브랜치로 사용합니다. 직접 검증하고 승인하기 전에는 main에 합치지 않습니다.
+- Cloudflare: 테스트용 이름을 가진 Worker를 별도로 만들고, 이 브랜치 체크아웃에서 `npx wrangler deploy --name my-asset-hub-v08-test`로 배포합니다. 기존 운영 Worker 이름에 배포하지 마세요. API와 정적 PWA가 같은 주소에서 제공됩니다.
+- Android: 배포된 HTTPS 주소를 Chrome에서 열고 메뉴 → 앱 설치 → 홈 화면에서 실행합니다.
+- iPhone: HTTPS 주소를 Safari에서 열고 공유 → 홈 화면에 추가 → 웹 앱으로 열기를 선택합니다.
+- 변경 반영: `python scripts/version.py 0.8.0-beta.2 <새-build-ID>`로 주요 상수를 갱신하고 `public/service-worker.js`의 CACHE에도 같은 버전/build를 넣은 뒤 테스트합니다. 캐시 갱신 후 `/api/health`와 하단 빌드가 같아야 합니다.
+
+## 데이터·동작
+
+- 개인 정보는 브라우저 저장소와 사용자가 보유한 JSON/Excel 파일에만 저장됩니다. 공용 GitHub에 백업 파일을 올리지 마세요.
+- 월급은 외부 유입이므로 총자산이 늘고, 적금 이체는 앱 내부 자산 이동이므로 총자산이 보존됩니다. 출금 대상이 없거나 잔액이 부족하면 자동 반영하지 않습니다.
+- v0.7 적금의 이전 금액/회차는 `balance = amount × current`, `monthlyPayment = amount`로 이행하여 평가액을 보존합니다. 이후 현재 잔액을 직접 수정할 수 있습니다.
+- 월 투자 금액은 이미 등록된 현금/예수금에서 사용하며 자산의 신규 유입으로 다시 더하지 않습니다. 유동 은행 잔액은 현금에 자동 이체되지 않습니다.
+- 정기 반영, 거래 모두 적용 직전 상태를 보관합니다. 직전 자동 반영 결과 팝업에서 되돌릴 수 있습니다.
+
+---
+
+## v0.7 문서 보관
+
 # My Asset Hub TEST · v0.7.0-beta.1
 
 build `20260926-beta-02`. **사용자 승인 전 main 병합·운영 배포 금지.**

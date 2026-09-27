@@ -1,22 +1,6 @@
-// My Asset Hub recovery service worker.
-// This intentionally removes legacy offline caches and unregisters itself.
-// PWA installation is provided by manifest.webmanifest while offline caching is disabled.
-self.addEventListener('install',event=>{
-  self.skipWaiting();
-});
-self.addEventListener('activate',event=>{
-  event.waitUntil((async()=>{
-    try{
-      const keys=await caches.keys();
-      await Promise.all(keys.filter(k=>k.startsWith('my-asset-hub-')).map(k=>caches.delete(k)));
-    }catch{}
-    try{await self.registration.unregister();}catch{}
-    try{
-      const clientsList=await self.clients.matchAll({type:'window',includeUncontrolled:true});
-      for(const client of clientsList){
-        try{client.postMessage({type:'MY_ASSET_HUB_SW_REMOVED'});}catch{}
-      }
-    }catch{}
-  })());
-});
-// Deliberately no fetch handler: navigation and assets always use the network.
+/* My Asset Hub TEST v0.8.0-beta.1 · build 20260927-beta-01 */
+const CACHE='my-asset-hub-v0.8.0-beta.1-20260927-beta-01';
+const STATIC=['./','./index.html','./manifest.webmanifest','./config.js','./js/portfolio.js','./js/cashflow.js','./js/app.js','./vendor/xlsx.full.min.js','./icons/icon-192.png','./icons/icon-512.png'];
+self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await cache.addAll(STATIC);await self.skipWaiting()})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('my-asset-hub-')&&key!==CACHE)await caches.delete(key);await self.clients.claim()})()));
+self.addEventListener('fetch',event=>{const request=event.request,url=new URL(request.url);if(request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return;event.respondWith((async()=>{try{const response=await fetch(request);if(response.ok){const cache=await caches.open(CACHE);cache.put(request,response.clone()).catch(()=>{});}return response}catch{const cache=await caches.open(CACHE);return await cache.match(request)||await cache.match('./index.html')||Response.error()}})())});

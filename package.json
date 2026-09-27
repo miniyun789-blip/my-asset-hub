@@ -1,13 +1,13 @@
 {
   "name": "my-asset-hub",
-  "version": "0.7.0",
+  "version": "0.8.0-beta.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "node --check public/js/app.js && node --check public/js/portfolio.js && node --check worker.js",
-    "test": "node --test tests/worker.test.mjs && node tests/v07.cjs",
+    "check": "node --check public/js/app.js && node --check public/js/portfolio.js && node --check public/js/cashflow.js && node --check public/service-worker.js && node --check worker.js",
+    "test": "node --test tests/worker.test.mjs && node tests/v07.cjs && node tests/v08.cjs",
     "test:browser": "node tests/browser-beta.cjs",
     "test:live": "node scripts/live_test.mjs"
   },
