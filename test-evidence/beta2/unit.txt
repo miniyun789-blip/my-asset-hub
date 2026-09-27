@@ -1,0 +1,87 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> my-asset-hub@0.8.0-beta.2 test
+> node --test tests/worker.test.mjs && node tests/v07.cjs && node tests/v08.cjs && node tests/beta2.cjs
+
+✔ 국내 이름 (26.2072ms)
+✔ 국내 코드 (2.211145ms)
+✔ KOSDAQ (0.879198ms)
+✔ 미국 종목 (1.641562ms)
+✔ 미국 티커 (1.949143ms)
+✔ NYSE (1.288742ms)
+✔ 국내 ETF (0.845157ms)
+✔ 미국 ETF (1.605237ms)
+✔ Upbit KRW (0.834501ms)
+✔ All listed-market pagination (2.047931ms)
+✔ NASDAQ/ARCA exchange classification (0.215292ms)
+✔ Quote validates foreign currency and positive price (1.752618ms)
+✔ Invalid quote is an error, never 0 (0.367801ms)
+✔ CORS permits configured GitHub origin only (1.025388ms)
+✔ Unknown API does not return HTML app (0.272048ms)
+✔ AMEX catalogue search returns USD instruments (0.361492ms)
+✔ health, app, manifest, package, footer and service worker version/build match (0.862063ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 128.526161
+PASS A: 90% locks plan
+PASS B: 100% unlocks
+PASS C: 30% split 15/15
+PASS D: 30% split 10/10/10
+PASS E: edited allocation retained by missing-only initialization
+PASS F: 13.6 rounds to 14 with adequate cash
+PASS G: rounded budget overflow adjusted
+PASS H: crypto fractional quantity
+PASS I/J: cash remainder and holdings after rebalance
+PASS L: monthly 2m buy only
+PASS M: min cash 300k caps 2m investment at 1.7m
+PASS N/O/P: partial fill 5->3, KRW weighted basis, history/contribution
+PASS Q: cash label rename preserves IDs and math
+PASS risk deletion moves stocks and targets
+PASS T: legacy storage copied, original and migration backup intact
+PASS corrupt and future schema never overwrite raw
+PASS fixed bank untouched and impossible warning
+PASS regular mode shares targets, exclusion, cash reserve percent
+PASS overspend actual price, stale plan, oversell rejected
+PASS sell then buy, sell basis retained, fee deducted
+PASS foreign cost stays KRW when FX changes
+PASS legacy Excel without v3 sheets keeps existing cash and histories
+PASS sell fee cannot cause negative cash
+PASS save failure rolls back actual portfolio and protects persisted state
+PASS K/J: confirmation cancellation, actual apply, snapshot undo
+PASS DOM actual stage disabled state
+PASS Excel full new schema binary roundtrip
+PASS R: Samsung auto fields/price
+PASS S: AAPL auto fields/price
+29 v0.7 tests PASS
+PASS v0.7 savings migration retains old valuation and original key
+PASS money formatter caret and internal value
+PASS liquidity defaults and explicit override
+PASS salary one per KST month, external asset increase
+PASS savings transfer preserves total, and pending on insufficient cash
+PASS popup and undo of applied salary
+PASS no popup without changes
+PASS monthly investment uses existing cash, no sells/overspend, integer stock and fractional crypto
+PASS fixed amount unchanged, dynamic weight, infeasible warning
+PASS locked stock quantity remains after planning
+PASS action plan details collapsed by default
+PASS salary invalid destination does not change saved state
+12 v0.8 tests PASS
+PASS investment: fixed 3m excluded, liquid 5m included, reserve 2m, total conserved
+PASS rebalance: fixed 3m excluded, liquid 5m included, reserve 2m, total conserved
+PASS partial fills and fee debit cash first, then bank displayOrder with stable tie break
+PASS actual fee cannot invade aggregate reserve; state unchanged on rejected fill
+PASS monthly overweights never sell, excluded asset never buys, stock integer/coin fractional
+PASS locked QQQ 5 shares unchanged after full execution with liquid bank funding
+PASS bank funding execution undo restores every balance and transaction
+PASS full STEP 3 contains no legacy monthly controls
+PASS fixed asset percentage changes with external salary while balance remains constant
+PASS Excel imported into fresh app preserves custom risk IDs, ordering and target edits
+PASS v0.7 Excel installment value migration preserves balance
+PASS fractional KRW weighted average editor rounds display without multiplying or losing basis
+PASS test Worker isolated from production
+13 beta.2 independent tests PASS

@@ -1,5 +1,5 @@
-/* My Asset Hub TEST v0.8.0-beta.1 · build 20260927-beta-01 */
-const CACHE='my-asset-hub-v0.8.0-beta.1-20260927-beta-01';
+/* My Asset Hub TEST v0.8.0-beta.2 · build 20260928-beta-02 */
+const CACHE='my-asset-hub-v0.8.0-beta.2-20260928-beta-02';
 const STATIC=['./','./index.html','./manifest.webmanifest','./config.js','./js/portfolio.js','./js/cashflow.js','./js/app.js','./vendor/xlsx.full.min.js','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await cache.addAll(STATIC);await self.skipWaiting()})()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('my-asset-hub-')&&key!==CACHE)await caches.delete(key);await self.clients.claim()})()));

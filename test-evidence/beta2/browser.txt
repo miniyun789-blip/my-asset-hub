@@ -1,0 +1,26 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> my-asset-hub@0.8.0-beta.2 test:browser
+> node tests/browser-beta.cjs && node tests/browser-v08.cjs && node tests/browser-beta2.cjs
+
+STAGE {
+  targets: { risk_2: 90 },
+  disabled: true,
+  total: '합계 90.0% / 100% · 100%를 맞추면 다음 단계가 열립니다.'
+}
+PASS real Chromium mobile: search/auto quote, KRW basis, risk rename, 90% lock/100% unlock, monthly preview, partial fill/fee, persistence/reload, Excel file download/import, transaction history, undo, no page errors, no document overflow. Physical device installation NOT TESTED.
+PASS mobile: bank editor, amount comma, liquidity, pointer risk drag confirm/cancel/persist, no JS errors or horizontal overflow
+PASS stock same-group reorder retains allocations and survives reload
+PASS 삼성전자 cross-risk cancel/apply/reload; dashboard and plans reflect stable ID
+PASS AAPL cross-risk cancel/apply/reload; dashboard and plans reflect stable ID
+PASS QQQ cross-risk cancel/apply/reload; dashboard and plans reflect stable ID
+PASS BTC cross-risk cancel/apply/reload; dashboard and plans reflect stable ID
+PASS bank cross-risk cancel/apply/reload; dashboard and plans reflect stable ID
+PASS cash cross-risk cancel/apply/reload; dashboard and plans reflect stable ID
+PASS cash and bank same-group reordering persists without target changes
+PASS full quantity lock, partial actual fill/fee/undo and monthly liquid funding on mobile
+PASS settings income, saving transfer popup, automatic undo, monthly idempotency on mobile
+PASS JSON file export/import restores holdings, stable risks, recurring ledger and history
+PASS cash editor uses live comma formatting and numeric persistence
+PASS no mobile horizontal overflow or JS errors
+13 independent mobile tests PASS

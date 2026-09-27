@@ -1,136 +1,58 @@
-# My Asset Hub · TEST v0.8.0-beta.1
+# My Asset Hub · TEST v0.8.0-beta.2
 
-**build `20260927-beta-01` · feature/v0.8.0-asset-flow-rebalance.** 운영 main을 수정하지 않고 이 브랜치에서 시험합니다. 금융기관 연결 또는 주문 전송은 하지 않습니다.
+Build: `20260928-beta-02`
+Branch: `feature/v0.8.0-asset-flow-rebalance`
+Worker: **`my-asset-hub-v08-test`**
 
-## 처음 시작
+기존 v0.8 beta.1을 검증하고 발견된 오류만 수정한 테스트 버전입니다. 금융기관 연결, 실제 주문 전송, 사용자 자산의 서버 수집은 하지 않습니다.
 
-1. 기존 v0.7 앱에서 JSON/Excel 백업을 먼저 내려받습니다.
-2. 이 브랜치를 복제해 `npm ci`, `npm run check`, `npm test`를 실행합니다. 브라우저 검증에는 Playwright용 Chromium이 필요합니다.
-3. `npm run dev`로 로컬에서 실행합니다. 화면의 `TEST · v0.8.0-beta.1 · build 20260927-beta-01`과 `/api/health`의 버전 및 build를 비교합니다.
-4. 자산 관리에서 잔액을 직접 입력하고 위험군을 지정합니다. 설정에서 월 정기수입과 정기 납입의 자동 반영을 별도로 켭니다. 현금 잔액 안에서 월 투자 계획을 확인하고 실제 체결을 기록합니다.
-5. v0.7 데이터가 있으면 기존 저장 키 `my-asset-hub-beta-v3`에서 `my-asset-hub-beta-v4`로 자동 복사·변환합니다. 구 저장 키는 남으며 `<새 키>-before-migration`에 최초 이행 전 원본을 저장합니다. 유효하지 않은 데이터는 저장을 차단합니다.
+## 실행과 검증
 
-## 테스트 배포 및 설치
+1. GitHub에서 위 feature 브랜치를 받습니다.
+2. `npm ci`를 실행합니다.
+3. `npm run check`, `npm test`를 실행합니다.
+4. `npx playwright install chromium` 후 `npm run test:browser`를 실행합니다. 기존 브라우저를 사용할 때는 `CHROMIUM_EXECUTABLE`에 실행 파일 경로를 지정할 수 있습니다.
+5. `npm run dev`로 앱을 엽니다. 하단의 TEST 버전/build와 `/api/health` 응답을 비교합니다.
 
-- GitHub: `feature/v0.8.0-asset-flow-rebalance` 브랜치를 테스트 브랜치로 사용합니다. 직접 검증하고 승인하기 전에는 main에 합치지 않습니다.
-- Cloudflare: 테스트용 이름을 가진 Worker를 별도로 만들고, 이 브랜치 체크아웃에서 `npx wrangler deploy --name my-asset-hub-v08-test`로 배포합니다. 기존 운영 Worker 이름에 배포하지 마세요. API와 정적 PWA가 같은 주소에서 제공됩니다.
-- Android: 배포된 HTTPS 주소를 Chrome에서 열고 메뉴 → 앱 설치 → 홈 화면에서 실행합니다.
-- iPhone: HTTPS 주소를 Safari에서 열고 공유 → 홈 화면에 추가 → 웹 앱으로 열기를 선택합니다.
-- 변경 반영: `python scripts/version.py 0.8.0-beta.2 <새-build-ID>`로 주요 상수를 갱신하고 `public/service-worker.js`의 CACHE에도 같은 버전/build를 넣은 뒤 테스트합니다. 캐시 갱신 후 `/api/health`와 하단 빌드가 같아야 합니다.
+`npm test`는 시장 API·계산·저장·migration·체결·undo·메타데이터 검사를 실행합니다. `npm run test:browser`는 390px Chromium에서 기존 흐름과 실제 터치 이벤트에 의한 투자자산/은행/현금 드래그, 월 투자, 전체 리밸런싱, 자동 반영, 파일 백업·복원을 실행합니다. 테스트에는 가상 데이터만 사용합니다.
 
-## 데이터·동작
+`npm run test:live`는 공개 시장 서버에 실제로 접속합니다. 시세 및 환율은 제공처 기준 시각과 통화를 확인하며, 실패하면 앱은 기존 저장 가격을 유지합니다.
 
-- 개인 정보는 브라우저 저장소와 사용자가 보유한 JSON/Excel 파일에만 저장됩니다. 공용 GitHub에 백업 파일을 올리지 마세요.
-- 월급은 외부 유입이므로 총자산이 늘고, 적금 이체는 앱 내부 자산 이동이므로 총자산이 보존됩니다. 출금 대상이 없거나 잔액이 부족하면 자동 반영하지 않습니다.
-- v0.7 적금의 이전 금액/회차는 `balance = amount × current`, `monthlyPayment = amount`로 이행하여 평가액을 보존합니다. 이후 현재 잔액을 직접 수정할 수 있습니다.
-- 월 투자 금액은 이미 등록된 현금/예수금에서 사용하며 자산의 신규 유입으로 다시 더하지 않습니다. 유동 은행 잔액은 현금에 자동 이체되지 않습니다.
-- 정기 반영, 거래 모두 적용 직전 상태를 보관합니다. 직전 자동 반영 결과 팝업에서 되돌릴 수 있습니다.
+## 유동자산 투자 재원 정책
 
----
+- 유동 현금성 잔액 = `cash.amount` + `liquidityType='liquid'` 은행자산의 `balance` 합계.
+- `fixed`는 투자 재원에서 제외하며 자산가치와 리스크 비중에는 포함합니다.
+- 두 투자 화면 모두 같은 최소 현금 설정과 체결 엔진을 사용합니다. 월 투자는 입력 예산과 최소 현금을 지키며 기존 종목을 매도하지 않습니다.
+- 실제 차감은 현금부터, 이후 유동 은행자산의 `displayOrder` 오름차순입니다. 순서가 같으면 stable asset ID 오름차순입니다. 매도 순유입은 현금에 반영합니다.
+- 수수료는 실제 체결 비용에 포함합니다. 자산별 순변동은 거래 이력의 `funding`에 기록하고 `liquidAfter`에 전체 유동 잔액을 남깁니다. 되돌리기는 은행 잔액도 복구합니다.
+- 월 투자 화면의 투자금은 이미 등록된 유동 잔액을 사용합니다. 월급 자동 반영 후 투자하더라도 총자산에 다시 더하지 않습니다. 기존 데이터와 테스트의 외부 신규자금 모드는 공통 엔진 내부 호환성으로 유지합니다.
 
-## v0.7 문서 보관
+## 저장과 백업
 
-# My Asset Hub TEST · v0.7.0-beta.1
+기본 저장 키는 `my-asset-hub-beta-v4`, schema는 4입니다. v0.7의 `my-asset-hub-beta-v3`와 초기 `my-asset-hub-html-v1`에서 읽어 이전하며 기존 키는 삭제하지 않습니다. 최초 이행 전 원본은 새 키의 `-before-migration`에 보존합니다. 이행 실패 시 원본을 덮어쓰지 않습니다.
 
-build `20260926-beta-02`. **사용자 승인 전 main 병합·운영 배포 금지.**
+구버전 적금/청약은 이전 평가액 `amount × current`를 `balance`로 변환합니다. 이후에는 현재 잔액을 직접 입력합니다. 월 납입액은 별도 자금흐름 정보입니다.
 
-## 현재 기준과 격리
+JSON은 전체 상태, Excel은 자산 표와 복원 메타데이터를 포함합니다. `v08백업` 또는 기존 `v07백업` 시트는 수정하지 마세요. 다른 기기에 Excel을 가져올 때도 백업에 기록된 stable risk ID와 사용자 이름, 순서를 기준으로 복원합니다. 개인 JSON/Excel은 public GitHub에 올리지 마세요.
 
-- 저장소: https://github.com/miniyun789-blip/my-asset-hub
-- 작업 기준 main: `9c6073fcbe153fc54147a5918cb8488dc6173744` (종목 자동입력 최신 코드)
-- 백업: `backup/pre-v0.7-20260926`
-- 개발: `feature/v0.7.0-rebalance`
-- 이 브랜치의 Worker 이름: **my-asset-hub-test**. 운영 Worker 이름으로 바꾸지 마세요.
-- 화면 하단에 TEST / 버전 / build, 서버와 빌드 일치 여부를 표시합니다.
-- 운영 저장 키 `my-asset-hub-html-v1`은 읽기만 합니다. 테스트는 `my-asset-hub-beta-v3`를 사용합니다. 새 URL에서는 브라우저 저장소를 공유하지 않으므로 운영 앱에서 JSON을 내려받아 테스트 앱으로 가져오세요.
-- 이번 수정은 원격 main과 운영 URL에 적용하지 않습니다. 백업 브랜치는 당시 main을 보존한 것으로 실기기 정상 여부를 새로 인증한 것은 아닙니다.
+## 테스트 배포와 휴대폰 설치
 
-## 테스트 서버 만들기 — 운영과 별도 Worker
+이번 검증에서는 **어떤 Worker에도 배포하지 않았습니다**. 추후 테스트 배포를 승인한 경우 Cloudflare 인증 후 `npm run deploy`를 실행하면 현재 설정의 `my-asset-hub-v08-test`에 배포됩니다. UI와 Market API는 같은 Worker 주소를 사용합니다.
 
-1. GitHub Desktop에서 저장소를 열고 **feature/v0.7.0-rebalance** 브랜치를 선택합니다.
-2. `wrangler.jsonc`의 `name`이 `my-asset-hub-test`인지 확인합니다.
-3. Cloudflare 대시보드에서 기존 운영 프로젝트를 수정하지 말고 별도 Worker를 만듭니다. Git 연동을 쓴다면 이 개발 브랜치를 배포 브랜치로 선택하고 프로젝트 루트는 `package.json` 위치, 배포 명령은 `npm run deploy`로 지정합니다.
-4. 또는 로컬 터미널에서 다음 명령을 실행합니다.
+- Android: 테스트 HTTPS 주소를 Chrome에서 열고 메뉴 → 앱 설치 또는 홈 화면에 추가.
+- iPhone: 테스트 HTTPS 주소를 Safari에서 열고 공유 → 홈 화면에 추가 → 웹 앱으로 열기.
+- 테스트와 운영 주소의 로컬 저장소는 다릅니다. 필요하면 JSON/Excel로 백업·복원합니다.
+- 배포 후 `/api/health`와 하단 버전/build가 같은지 확인합니다. 물리 기기 설치는 별도 검증이 필요합니다.
 
-```sh
-npm ci
-npm run check
-npm test
-npx wrangler login
-npm run deploy
-```
+## 향후 main 승격 절차
 
-5. 출력된 `my-asset-hub-test....workers.dev` HTTPS 주소를 테스트 주소로 사용합니다. 기존 운영 주소로 연결하는 route/custom domain은 추가하지 않습니다.
-6. `/api/health` 응답의 version `0.7.0-beta.1`, build `20260926-beta-02`을 확인합니다. 앱 하단의 ‘적용됨’도 확인하세요.
-7. Android Chrome → 앱 설치/홈 화면 추가, iPhone Safari → 공유 → 홈 화면에 추가로 설치합니다. 테스트 앱 표시명은 **My Asset Hub TEST**입니다.
+1. 사용자의 main 병합 및 운영 배포 승인을 받습니다.
+2. 테스트 결과와 최종 feature SHA를 확인합니다.
+3. **운영 승격 변경에서만** `wrangler.jsonc`의 Worker 이름을 `my-asset-hub`로 변경합니다. 운영 버전/build와 메타데이터도 함께 맞춥니다.
+4. 검사를 다시 통과한 후 승인된 변경을 main에 반영합니다. 운영 배포는 별도 승인된 단계로 수행합니다.
 
-실제 배포 결과와 미검증 여부는 TEST_REPORT.md를 참고하세요. 계정 로그인이 없으면 이 문서의 명령은 사용자가 실행해야 합니다. 토큰을 앱 JavaScript나 저장소에 넣지 마세요.
+feature 브랜치에서 `--name my-asset-hub`로 이름을 덮어써 배포하지 마세요.
 
-## 사용 순서
+## 버전 업데이트
 
-### 자산과 설정
-
-- 투자자산 추가에서 종목명 또는 티커 하나만 검색합니다. 선택하면 이름·시장·통화·현재가가 자동 입력됩니다.
-- 국내·해외 모두 **원화 기준 매수평단(원/주·개)**을 입력합니다. 해외 현재가는 USD로 조회하고 자동 환율로 원화 평가합니다.
-- 현금/예수금은 별도 잔액입니다. 은행 예금과 중복 입력하지 마세요.
-- 설정에서 리스크 이름·설명·월 기본 투자금·최소 현금·현금 연결 그룹을 변경합니다.
-- 리스크를 삭제할 때는 이동 대상을 선택합니다. 이름만 바꿔도 기존 자산 연결과 목표 ID는 유지됩니다.
-- 기존 은행자산은 자동 매매·자동 출금하지 않습니다. 적금·청약은 고정이며 예금·파킹도 계획상 유지합니다. 사용할 자금은 실제로 옮긴 뒤 은행잔액과 현금잔액을 각각 수정하세요.
-
-### 리밸런싱 / 월 투자
-
-1. STEP 1: 리스크 목표 총합을 100%로 맞춥니다(오차 ±0.01%p). 고정 은행자산도 연결된 리스크의 현재 비중에 포함됩니다.
-2. STEP 2: 그룹 내 종목 목표를 조정합니다. 최초 또는 새 종목 추가 시 균등분배하고, 이미 편집한 값은 재실행 시 유지합니다. ‘균등 배분’ 또는 ‘현재 금액에 비례 배분’ 버튼으로 다시 배분할 수 있습니다.
-3. 그룹별 종목 합계가 리스크 목표와 맞아야 STEP 3이 열립니다. 자산이 없는 그룹에 목표를 주었다면 먼저 자산을 등록하거나 목표를 0으로 변경하세요.
-4. 일반 리밸런싱은 매도대금 + 기존 현금 범위에서 매수합니다. 월 투자는 **기존 자산 매도 없이 신규자금만** 사용합니다.
-5. 월 투자 방식은 ‘목표 부족분 우선’과 ‘정기 적립식’입니다. 제외할 종목을 선택하면 해당 종목은 매수하지 않습니다. 정기 적립식에서 제외/은행에 배정됐지만 거래하지 못한 부분은 현금으로 남길 수 있습니다.
-6. 계획에서 현재→목표 수량, 매수/매도, 예상 금액, 실행 후 비중·오차, 잔여 현금을 확인합니다. 주식/ETF는 정수, 코인은 소수점 8자리까지 사용합니다.
-7. 구매 진행/체결 확인에서 **실제 체결수량·가격·수수료**를 입력합니다. 수량 0은 미체결입니다. 추천수량을 넘는 체결은 다시 계획을 계산하세요.
-8. 최종 확인을 승인한 경우에만 데이터가 변경됩니다. 시세나 자산이 계획 이후 바뀌면 재계산을 요구합니다.
-9. 잘못 반영했다면 ‘직전 투자/리밸런싱 되돌리기’를 사용합니다. 가장 최근 실행만 되돌릴 수 있으며, 실행 뒤 직접 수정한 내용도 스냅샷 시점으로 돌아가므로 확인 문구를 읽어주세요.
-
-계획은 실제 증권사 주문을 전송하지 않습니다. 거래일별 결제 대기·세금·환전 스프레드는 포함하지 않습니다. 해외 체결의 원화 원가는 계획 시 자동 환율과 원화 수수료로 계산합니다. 증권사의 실제 원화 출금액과 차이가 있으면 자산 수정에서 원화 평단을 맞출 수 있습니다.
-
-## 데이터 이전과 백업
-
-schema version은 3입니다.
-
-- `stocks[].buyKrw`: 원화 기준 단위 매수원가. 이전 `buy`, `buyFx`도 보존합니다.
-- 예전 USD 평단은 `buy × buyFx`로 변환합니다. 과거 환율이 없으면 **이전 저장 환율**로 고정하고 `costMigration`에 추정 사유를 기록합니다. 과거 원가를 정확히 알 수 있는 경우 증권사 자료로 원화 평단을 확인하세요.
-- `config.riskGroups`: `{id,label,description}`. `stocks[].risk`, `savings[].risk`, `riskTargets`는 ID로 연결됩니다.
-- `cash`, `config.cashRiskId`, `monthlyInvestment`, `minCashMode`, `minCash` 추가.
-- `transactions`: 실제 체결·실행 전후 총자산·수수료·잔여 현금.
-- `cashflows`: 신규 납입금과 수동 현금 조정. 시장 손익과 구분할 기반이며 손익분석 차트는 이번 범위 밖입니다.
-- 최초 이전 전 원본은 `…-before-migration`, 실행 직전 전체 상태는 `…-before-investment` / `…-before-rebalance`에 저장합니다. 실패 시 원본을 덮어쓰지 않습니다.
-
-JSON이 가장 완전한 백업입니다. Excel은 기존 6개 시트에 `원화매수평단` 열과 `현금`, `v07백업` 시트를 추가합니다. `v07백업`은 현금·리스크 ID·거래이력 등을 보존하는 JSON 조각이므로 수정/삭제하지 마세요. 투자자산·은행자산·목표·기록·현금의 표시 시트는 편집할 수 있습니다. 설정은 앱에서 수정하는 것을 권합니다.
-
-이전 v0.5/v0.6 Excel·JSON도 가져올 수 있습니다. 가져오기 화면의 교체 건수를 확인하세요. 테스트 데이터를 운영 앱에 다시 가져오는 역방향(v3→v2) 이전은 보장하지 않습니다. 승인 전에는 운영 데이터를 테스트 결과로 교체하지 마세요.
-
-## 개발·검증
-
-```sh
-npm ci
-npm run dev
-npm run check
-npm test
-npx playwright install chromium
-npm run test:browser
-npm run test:live
-```
-
-- `npm test`: 기존 시장 API 테스트 + v0.7 계산/DOM/이전 테스트.
-- `test:browser`: 실제 Chromium에서 모바일 사용자 흐름. 기기 설치 자체는 별도 확인.
-- 과거 `tests/data.cjs`, `pwa.cjs`, `ui.cjs`, `service-worker.test.mjs`는 v0.6 기록으로 보존하며 v0.7 실행 대상이 아닙니다. 당시 오프라인 캐시는 최신 main에서 이미 비활성화되어 있었습니다. 이번 beta는 그 네트워크 전용 동작을 유지하며, 다른 서비스워커를 일괄 해제하던 앱 코드는 제거했습니다.
-- `scripts/version.py`로 버전을 변경하고, `python scripts/version.py 0.7.0-beta.2 새-build-ID`로 build도 함께 변경할 수 있습니다. 새 build마다 화면 표시와 `/api/health`를 비교합니다.
-- 모바일 설치, 실제 개인 백업, 실제 Cloudflare API, 전 거래시장 전체 가격은 추가 확인이 필요합니다. 상세 결과는 TEST_REPORT.md에 기록합니다.
-
-개인 JSON·Excel·스크린샷을 GitHub에 올리지 마세요. OCR 기능은 구현하지 않았습니다.
-
-## 이번 임시 배포
-
-https://my-asset-hub-test.locrian-xenoposeidon.workers.dev
-
-임시 계정이며 최초 생성 후 60분 내 계정 인계가 필요합니다. 만료 시 위의 본인 계정 배포 절차를 사용하세요. 이 주소를 운영 주소로 사용하지 마세요. 계정 인계 링크는 저장소에 포함하지 않습니다.
-
-최종 소스는 build `20260926-beta-02`입니다. 위 임시 주소는 beta-01 검증 당시 주소이며 현재 유효성을 보장하지 않습니다. **휴대폰에서 지속 사용하려면 본인 Cloudflare 계정의 별도 테스트 Worker에 이 브랜치를 배포해야 합니다.**
+`python scripts/version.py 0.8.0-beta.3 YYYYMMDD-beta-03`을 실행하면 app, Worker, package/lock, manifest, footer 및 service-worker cache를 함께 갱신합니다. `npm test`가 `/api/health` 응답과 메타데이터 일치를 검사합니다.

@@ -1,5 +1,22 @@
 # 변경 기록
 
+## v0.8.0-beta.2 · build 20260928-beta-02 · 독립 검증
+
+### Fixed
+- 투자자산 드래그 시 stocks 누락, 같은 위험군 정렬 때 목표비중 재배분, 교차 이동 시 이전 그룹 목표 불일치 수정.
+- 전체 리밸런싱 STEP 3에서 legacy 월 투자 옵션 제거. 공통 계획/체결 엔진 유지.
+- cash와 유동 은행자산을 공통 재원으로 사용하고 최소 현금 및 수수료를 일관되게 적용. 고정자산은 차감하지 않음.
+- 다른 기기 Excel 복원 시 사용자 정의 risk ID/표시 순서, 구버전 적금 평가액, 목표금액 수정값 보존.
+- 소수점 KRW 평단을 콤마 표시할 때 자릿수가 늘어나는 오류 수정. 기존 평단 정밀도 보존.
+- 현금 수정에도 기존 자산 편집창의 실시간 콤마 입력 적용.
+- 모바일 수량 유지 행에서 목표비중 입력칸이 좁아지는 레이아웃 수정.
+- 테스트 Worker 이름을 my-asset-hub-v08-test로 분리. 버전 스크립트가 footer/manifest build/SW cache까지 갱신.
+
+### Verified
+- npm run check, npm test, npm run test:browser 통과. 자세한 수와 실제 시장 호출 결과는 TEST_REPORT.md 참조.
+- 실제 터치 이벤트로 국내/미국/ETF/코인/은행/현금 이동, 취소·승인, 같은 그룹 정렬, reload 확인.
+- main 병합 및 production 배포 없음.
+
 ## v0.8.0-beta.1 · build 20260927-beta-01 · TEST
 
 ### Added
