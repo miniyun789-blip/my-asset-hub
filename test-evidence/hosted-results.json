@@ -1,0 +1,97 @@
+[
+  {
+    "path": "/api/health",
+    "status": 200,
+    "data": {
+      "ok": true,
+      "version": "0.7.0-beta.1",
+      "build": "20260926-beta-01"
+    }
+  },
+  {
+    "path": "/api/search?q=005930",
+    "status": 200,
+    "data": {
+      "total": 1,
+      "results": [
+        {
+          "ticker": "005930",
+          "symbol": "005930.KS",
+          "name": "삼성전자",
+          "market": "KOSPI",
+          "currency": "KRW"
+        }
+      ]
+    }
+  },
+  {
+    "path": "/api/search?q=AAPL",
+    "status": 200,
+    "data": {
+      "total": 10,
+      "results": [
+        {
+          "ticker": "AAPL",
+          "symbol": "AAPL",
+          "name": "Apple Inc. - Common Stock",
+          "market": "NASDAQ",
+          "currency": "USD"
+        }
+      ]
+    }
+  },
+  {
+    "path": "/api/fx",
+    "status": 200,
+    "data": {
+      "symbol": "KRW=X",
+      "price": 1355.28,
+      "currency": "KRW",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-25T22:59:06.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-26T00:31:16.873Z",
+      "pair": "USD/KRW",
+      "rate": 1355.28
+    }
+  },
+  {
+    "path": "/api/quote?ticker=005930&market=KOSPI&currency=KRW",
+    "status": 200,
+    "data": {
+      "symbol": "005930.KS",
+      "price": 285500,
+      "currency": "KRW",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-23T06:30:06.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-26T00:31:24.016Z"
+    }
+  },
+  {
+    "path": "/api/quote?ticker=AAPL&market=NASDAQ&currency=USD",
+    "status": 200,
+    "data": {
+      "symbol": "AAPL",
+      "price": 341.07,
+      "currency": "USD",
+      "source": "Yahoo Finance",
+      "asOf": "2026-09-25T20:00:01.000Z",
+      "kind": "최근 정규장 가격 · 지연 가능",
+      "fetchedAt": "2026-09-26T00:31:23.963Z"
+    }
+  },
+  {
+    "path": "/api/quote?ticker=KRW-BTC&currency=KRW",
+    "status": 200,
+    "data": {
+      "symbol": "KRW-BTC",
+      "price": 113640000,
+      "currency": "KRW",
+      "source": "Upbit",
+      "asOf": "2026-09-26T00:31:22.336Z",
+      "kind": "최근 체결가",
+      "fetchedAt": "2026-09-26T00:31:24.533Z"
+    }
+  }
+]

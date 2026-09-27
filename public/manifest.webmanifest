@@ -1,6 +1,6 @@
 {
-  "name": "My Asset Hub",
-  "short_name": "My Asset Hub",
+  "name": "My Asset Hub TEST",
+  "short_name": "Asset Hub TEST",
   "description": "개인용 자산관리 PWA",
   "start_url": "./",
   "scope": "./",
@@ -23,5 +23,5 @@
     }
   ],
   "id": "./",
-  "version": "0.6.0"
+  "version": "0.7.0-beta.1"
 }

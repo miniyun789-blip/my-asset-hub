@@ -1,6 +1,6 @@
 // My Asset Hub v0.6.0 — public market data only. No holdings, quantities or personal files.
-const VERSION='0.6.0-dev';
-const BUILD='20260926-01';
+const VERSION='0.7.0-beta.1';
+const BUILD='20260926-beta-02';
 const JSONH={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
 const out=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:JSONH});
 let master=null,masterAt=0;const quotes=new Map();
@@ -47,3 +47,4 @@ export default {async fetch(request,env){const u=new URL(request.url);if(!u.path
  }catch(e){response=out({error:e.message},502)}
  for(const[k,v]of Object.entries(cors))response.headers.set(k,v);return response;
 }};
+

@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## v0.7.0-beta.1 — 2026-09-26 (TEST)
+
+Added
+- 원화 매수원가, schema v3 migration, 운영 원본/테스트 저장 분리.
+- stable risk ID, 이름·설명 편집, 삭제 시 자산 이동, 현금 연결 그룹.
+- 별도 현금/예수금, 3단계 리밸런싱, 정수 주식·소수점 코인·예산 검증.
+- 월 투자 2개 모드, 최소 현금, 매수 제외, 전후 Preview.
+- 실제 체결·부분체결·수수료·최종 확인, 거래/납입 이력, 자동 백업·되돌리기.
+- Excel 원화평단/현금/v3 백업, TEST 버전/build 표시.
+
+Fixed
+- 종목 시세 응답 순서 경합 및 async submit의 currentTarget 참조.
+- 고정 은행자산을 매수 가용현금으로 잘못 사용하는 위험 방지.
+- 다른 서비스워커를 일괄 해제하던 main 앱 코드 제거(네트워크 전용 유지).
+
+Verified
+- 기존 시장 테스트 15 + v0.7 계산/DOM 29 PASS.
+- Chromium 모바일 사용자 흐름, 실제 xlsx 파일 왕복·거래 복구 PASS.
+- 별도 임시 Cloudflare Worker 배포. 운영 main/URL 변경 없음.
+- 실기기/개인 데이터/임시 주소 한계는 TEST_REPORT 참조.
+
+
 ## v0.6.0 — 2026-09-25
 
 ### Added

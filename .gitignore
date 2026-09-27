@@ -14,3 +14,4 @@ backups/
 my-asset-hub-*.json
 my-asset-hub-recovery-raw.json
 test-artifacts/
+node_modules

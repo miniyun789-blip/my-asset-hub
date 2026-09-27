@@ -1,5 +1,5 @@
 {
-  "name": "my-asset-hub",
+  "name": "my-asset-hub-test",
   "main": "worker.js",
   "compatibility_date": "2026-09-25",
   "assets": {
@@ -10,3 +10,4 @@
   },
   "vars": { "ALLOWED_ORIGIN": "" }
 }
+

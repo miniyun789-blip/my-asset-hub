@@ -1,8 +1,8 @@
 
 (() => {
   'use strict';
-  const KEY='my-asset-hub-html-v1';
-  const defaults=()=>({version:2,config:{target:1000000000,fx:1350,refreshMinutes:5,risks:['초고위험','위험','중립','안전']},stocks:[],savings:[],history:[],riskTargets:{},allocations:{}});
+  const KEY='my-asset-hub-beta-v3', LEGACY_KEY='my-asset-hub-html-v1';
+  const defaults=()=>normalize({version:3,config:{target:1e9,fx:1350,fxSource:'자동 조회 대기',refreshMinutes:5,riskGroups:Portfolio.labels.map((label,i)=>({id:'risk_'+(i+1),label})),risks:['risk_1','risk_2','risk_3','risk_4'],cashRiskId:'risk_4'},stocks:[],savings:[],history:[],cash:{amount:0},riskTargets:{},allocations:{}});
   const $=s=>document.querySelector(s);
   const money=n=>`${Math.round(Number(n)||0).toLocaleString('ko-KR')}원`;
   const num=n=>Number.isFinite(Number(n))?Number(n):0;
@@ -17,7 +17,7 @@
     return n;
   }
   function bool(v){if(v===true||v===1||String(v).toLowerCase()==='true')return true;if(v===false||v===0||v==null||v===''||String(v).toLowerCase()==='false')return false;throw Error('해외여부는 TRUE/FALSE여야 합니다.')}
-  function normalize(raw){
+  function normalizeLegacy(raw){
     if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('JSON 형식을 확인해 주세요.');
     for(const k of ['stocks','savings','history'])if(raw[k]!=null&&!Array.isArray(raw[k]))throw Error(`${k}: 목록 형식이 아닙니다.`);
     const cfg=Array.isArray(raw.config)?raw.config[0]||{}:raw.config||{};
@@ -37,20 +37,21 @@
     const parseTargets=(obj)=>{if(typeof obj==='string')obj=JSON.parse(obj);const result=Object.create(null);for(const [k,v]of Object.entries(obj||{})){const n=finite(v,'목표 비중');if(n>100)throw Error('목표 비중은 100 이하입니다.');result[k]=n}return result};
     return {version:2,config:{target:finite(cfg.target??cfg.target_asset??1e9,'목표금액',{min:1}),fx:finite(cfg.fx??1350,'환율',{min:.01}),risks,refreshMinutes:[0,5,15,30].includes(Number(cfg.refreshMinutes))?Number(cfg.refreshMinutes):5,fxAsOf:String(cfg.fxAsOf||''),fxSource:String(cfg.fxSource||'수동'),fxError:String(cfg.fxError||'')},stocks,savings,history:[...new Map(history.map(h=>[h.date,h])).values()].sort((a,b)=>a.date.localeCompare(b.date)),riskTargets:parseTargets(raw.riskTargets??cfg.riskTargets),allocations:parseTargets(raw.allocations??cfg.allocations)};
   }
-  let state,storageBlocked=false;try{const saved=localStorage.getItem(KEY);state=saved?normalize(JSON.parse(saved)):defaults()}catch(e){state=defaults();storageBlocked=true;alert(`저장 데이터에 오류가 있어 덮어쓰기를 중지했습니다. 엑셀·백업에서 복원하세요.\n${e.message}`)}
+  function normalize(raw){return Portfolio.migrate(raw,normalizeLegacy)}
+  const riskLabel=id=>state.config.riskGroups.find(g=>g.id===id)?.label||id;
+  let state,storageBlocked=false;
+  try{const saved=localStorage.getItem(KEY),legacy=localStorage.getItem(LEGACY_KEY),raw=saved||legacy;
+    state=raw?normalize(JSON.parse(raw)):defaults();
+    if(raw&&(!saved||Number(JSON.parse(raw).version)<3)&&!localStorage.getItem(KEY+'-before-migration'))localStorage.setItem(KEY+'-before-migration',raw);
+  }catch(e){state=defaults();storageBlocked=true;alert('기존 원본을 보존하고 저장을 중지했습니다. '+e.message)}
+  let activePlan=null,investmentExcluded=new Set(),riskDraft=[],riskMoves={};
   let period='day',tab='dashboard',editType='',editId=null,editQuoteMeta=null;
   function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.remove('hidden');setTimeout(()=>el.classList.add('hidden'),3200)}
-  function calc(){
-    const fx=state.config.fx;
-    const stocks=state.stocks.map(s=>{const p=s.price===null?s.buy:s.price;const value=p*s.quantity*(s.foreign?fx:1);const cost=s.buy*s.quantity*(s.foreign?fx:1);return {...s,value,cost,quote:p,estimated:s.price===null}});
-    const banks=state.savings.map(s=>({...s,value:s.amount*(['예금','파킹통장'].includes(s.type)?1:s.current),fixed:!['예금','파킹통장'].includes(s.type)}));
-    const stockTotal=stocks.reduce((a,s)=>a+s.value,0),bankTotal=banks.reduce((a,s)=>a+s.value,0),cost=stocks.reduce((a,s)=>a+s.cost,0)+bankTotal;
-    return {stocks,banks,stockTotal,bankTotal,cost,total:stockTotal+bankTotal};
-  }
+  function calc(){return Portfolio.calc(state)}
   function persist({record=true}={}){
     if(storageBlocked){toast('기존 데이터 보호를 위해 저장이 중지되었습니다. 백업 파일로 복원하세요.');render();return false}
     if(record){const total=calc().total,date=today();if(total>0||state.history.length){const at=state.history.findIndex(h=>h.date===date);if(at>=0)state.history[at].total=total;else state.history.push({date,total});state.history.sort((a,b)=>a.date.localeCompare(b.date));}}
-    try{localStorage.setItem(KEY,JSON.stringify(state));$('#save-status').textContent='이 기기에 저장';render();return true}catch(e){$('#save-status').textContent='저장 실패';toast('저장 공간을 확인한 뒤 JSON 백업을 만드세요.');return false}
+    try{state.revision=(state.revision||0)+1;localStorage.setItem(KEY,JSON.stringify(state));$('#save-status').textContent='이 기기에 저장';render();return true}catch(e){$('#save-status').textContent='저장 실패';toast('저장 공간을 확인한 뒤 JSON 백업을 만드세요.');return false}
   }
   function donut(items,label){const nonzero=items.filter(x=>x.value>0),total=nonzero.reduce((a,x)=>a+x.value,0);if(!total)return '<div class="empty" style="width:100%">자산을 추가하면 비중이 표시됩니다.</div>';
     let cursor=0;const gradient=nonzero.map(x=>{const start=cursor;cursor+=x.value/total*100;return `${x.color} ${start}% ${cursor}%`}).join(',');return `<div class="donut" style="background:conic-gradient(${gradient})"><div class="donut-inner"><div><b>${label}</b><small>${nonzero.length}개 항목</small></div></div></div><div class="legend">${nonzero.map(x=>`<div class="legend-row"><span class="dot" style="background:${x.color}"></span><span>${safe(x.name)}</span><b>${(x.value/total*100).toFixed(1)}%</b></div>`).join('')}</div>`}
@@ -65,52 +66,50 @@
   function render(){const c=calc(),target=state.config.target;
     $('#hero-total').textContent=money(c.total);$('#goal-value').textContent=money(target);$('#goal-fill').style.width=`${Math.min(100,c.total/target*100)}%`;$('#goal-message').textContent=`${(c.total/target*100).toFixed(1)}% 달성 · ${c.total>=target?'목표 달성':`${money(target-c.total)} 남음`}`;
     $('#stock-total').textContent=money(c.stockTotal);$('#bank-total').textContent=money(c.bankTotal);const delta=c.total-c.cost;$('#profit-total').textContent=`${delta>=0?'+':''}${money(delta)}`;$('#profit-total').className=delta<0?'negative':'positive';
-    const parts=[{name:'가상화폐',value:c.stocks.filter(s=>s.ticker.toUpperCase().startsWith('KRW-')).reduce((a,s)=>a+s.value,0),color:colors[2]},{name:'해외 주식',value:c.stocks.filter(s=>s.foreign&&!s.ticker.toUpperCase().startsWith('KRW-')).reduce((a,s)=>a+s.value,0),color:colors[3]},{name:'국내 주식',value:c.stocks.filter(s=>!s.foreign&&!s.ticker.toUpperCase().startsWith('KRW-')).reduce((a,s)=>a+s.value,0),color:colors[1]},{name:'은행',value:c.bankTotal,color:colors[0]}];$('#portfolio-viz').innerHTML=donut(parts,'자산 유형');
-    const risks=state.config.risks.map((name,i)=>({name,value:c.stocks.filter(s=>s.risk===name).reduce((a,s)=>a+s.value,0)+(name==='안전'?c.banks.filter(s=>!s.fixed).reduce((a,s)=>a+s.value,0):0),color:colors[i%colors.length]}));const others=c.stocks.filter(s=>!state.config.risks.includes(s.risk)).reduce((a,s)=>a+s.value,0);if(others)risks.push({name:'기타',value:others,color:'#9aacbc'});risks.push({name:'고정(은행)',value:c.banks.filter(s=>s.fixed).reduce((a,s)=>a+s.value,0),color:'#71889e'});$('#risk-viz').innerHTML=donut(risks,'리스크');
+    const parts=[{name:'가상화폐',value:c.stocks.filter(s=>s.ticker.toUpperCase().startsWith('KRW-')).reduce((a,s)=>a+s.value,0),color:colors[2]},{name:'해외 주식',value:c.stocks.filter(s=>s.foreign&&!s.ticker.toUpperCase().startsWith('KRW-')).reduce((a,s)=>a+s.value,0),color:colors[3]},{name:'국내 주식',value:c.stocks.filter(s=>!s.foreign&&!s.ticker.toUpperCase().startsWith('KRW-')).reduce((a,s)=>a+s.value,0),color:colors[1]},{name:'은행',value:c.bankTotal,color:colors[0]},{name:'현금',value:c.cashTotal,color:colors[4]}];$('#portfolio-viz').innerHTML=donut(parts,'자산 유형');
+    const risks=state.config.riskGroups.map((g,i)=>({name:g.label,value:Portfolio.items(state).filter(x=>x.risk===g.id).reduce((a,x)=>a+x.value,0),color:colors[i%colors.length]}));$('#risk-viz').innerHTML=donut(risks,'리스크');
     $('#stock-count').textContent=`${c.stocks.length}개`;$('#bank-count').textContent=`${c.banks.length}개`;
-    $('#stock-list').innerHTML=c.stocks.length?c.stocks.map(s=>`<div class="row"><div class="row-main"><div class="row-title">${safe(s.name)} <span class="muted">${safe(s.ticker)}</span></div><div class="row-sub">${safe(s.risk)} · ${s.quantity.toLocaleString('ko-KR',{maximumFractionDigits:8})}주/개 · 평단 ${s.buy.toLocaleString('ko-KR')} ${s.foreign?'USD':'KRW'}${s.estimated?' · 현재가 미입력(평단 적용)':''}<span class="quote-meta">${safe(s.quoteError||`${s.quoteSource||'수동 입력'} · ${s.quoteAsOf?new Date(s.quoteAsOf).toLocaleString('ko-KR'):'기준 시각 없음'}`)}</span></div></div><div class="row-value"><strong>${money(s.value)}</strong><small class="${s.value-s.cost<0?'negative':'positive'}">${s.cost?`${((s.value-s.cost)/s.cost*100).toFixed(1)}%`:'—'}</small><div class="row-actions"><button class="btn small" data-edit="stock" data-id="${safe(s.id)}">수정</button><button class="btn small danger" data-delete="stock" data-id="${safe(s.id)}">삭제</button></div></div></div>`).join(''):'<div class="empty">등록된 투자 자산이 없습니다.</div>';
+    $('#stock-list').innerHTML=c.stocks.length?c.stocks.map(s=>`<div class="row"><div class="row-main"><div class="row-title">${safe(s.name)} <span class="muted">${safe(s.ticker)}</span></div><div class="row-sub">${safe(riskLabel(s.risk))} · ${s.quantity.toLocaleString('ko-KR',{maximumFractionDigits:8})}주/개 · 평단 ${s.buyKrw.toLocaleString('ko-KR')} KRW${s.estimated?' · 현재가 미입력(평단 적용)':''}<span class="quote-meta">${safe(s.quoteError||`${s.quoteSource||'수동 입력'} · ${s.quoteAsOf?new Date(s.quoteAsOf).toLocaleString('ko-KR'):'기준 시각 없음'}`)}</span></div></div><div class="row-value"><strong>${money(s.value)}</strong><small class="${s.value-s.cost<0?'negative':'positive'}">${s.cost?`${((s.value-s.cost)/s.cost*100).toFixed(1)}%`:'—'}</small><div class="row-actions"><button class="btn small" data-edit="stock" data-id="${safe(s.id)}">수정</button><button class="btn small danger" data-delete="stock" data-id="${safe(s.id)}">삭제</button></div></div></div>`).join(''):'<div class="empty">등록된 투자 자산이 없습니다.</div>';
     $('#bank-list').innerHTML=c.banks.length?c.banks.map(s=>`<div class="row"><div class="row-main"><div class="row-title">${safe(s.name)} <span class="muted">${safe(s.type)}</span></div><div class="row-sub">${s.fixed?`${s.current}/${s.total}회 납입 · 회차당 ${money(s.amount)}`:`현재 잔액 ${money(s.amount)}`} · 연 ${s.rate}% (이자 미반영)</div></div><div class="row-value"><strong>${money(s.value)}</strong><div class="row-actions"><button class="btn small" data-edit="bank" data-id="${safe(s.id)}">수정</button><button class="btn small danger" data-delete="bank" data-id="${safe(s.id)}">삭제</button></div></div></div>`).join(''):'<div class="empty">등록된 은행 자산이 없습니다.</div>';
-    renderHistory();renderRebalance(c);renderMarketStatus();
+    $('#cash-value').textContent=money(c.cashTotal);renderHistory();renderRebalance(c);renderMarketStatus();renderTransactions();
   }
-  function renderRebalance(c){const fixed=c.banks.filter(s=>s.fixed).reduce((a,s)=>a+s.value,0),fixedPct=c.total?fixed/c.total*100:0;
-    $('#risk-targets').innerHTML=state.config.risks.map(r=>{const current=(c.stocks.filter(s=>s.risk===r).reduce((a,s)=>a+s.value,0)+(r==='안전'?c.banks.filter(s=>!s.fixed).reduce((a,s)=>a+s.value,0):0))/Math.max(c.total,1)*100;return `<div class="target-row"><span>${safe(r)}</span><span class="right muted">현재 ${current.toFixed(1)}%</span><label class="field"><span class="sr-only">${safe(r)} 목표</span><input type="number" min="0" max="100" step="0.1" data-risk="${safe(r)}" value="${num(state.riskTargets[r])}"></label></div>`}).join('')+`<div class="target-row"><span>고정(은행)</span><span></span><strong>${fixedPct.toFixed(1)}%</strong></div>`;
-    const riskSum=state.config.risks.reduce((a,r)=>a+num(state.riskTargets[r]),0)+fixedPct;$('#target-sum').textContent=`목표 합계 ${riskSum.toFixed(1)}% / 100% ${Math.abs(riskSum-100)>.15?'· 리스크별 목표를 조정하세요.':'· 목표가 일치합니다.'}`;
-    $('#rebalance-basis').innerHTML=`총자산 <b>${money(c.total)}</b><br>고정 은행 자산 <b>${money(fixed)}</b> (${fixedPct.toFixed(1)}%)<br>입력 환율 <b>1 USD = ${state.config.fx.toLocaleString('ko-KR')} KRW</b><br><br>매수·매도 수량은 최종 저장 가격으로 계산합니다. 현재가를 비워 둔 경우 평단이 사용되므로 수량 안내를 확인하세요.`;
-    const items=[...c.stocks.map(s=>({...s,kind:'stock',group:s.risk})),...c.banks.filter(s=>!s.fixed).map(s=>({...s,kind:'bank',group:'안전'})),...c.banks.filter(s=>s.fixed).map(s=>({...s,kind:'fixed',group:'고정(은행)'}))];
-    $('#allocation-list').innerHTML=items.length?items.map(s=>{const fixedItem=s.kind==='fixed',current=c.total?s.value/c.total*100:0,target=fixedItem?current:num(state.allocations[s.id]),diff=c.total*target/100-s.value,validPrice=s.kind==='stock'&&s.quote>0;const unit=validPrice?Math.abs(diff)/(s.quote*(s.foreign?state.config.fx:1)):0;const act=fixedItem?'유지 (고정)':Math.abs(diff)<=10000?'유지':`${diff>0?'매수':'매도'} ${money(Math.abs(diff))}${validPrice?` · 약 ${unit.toLocaleString('ko-KR',{maximumFractionDigits:3})}주/개`:''}`;return `<div class="allocation"><div><b>${safe(s.name)}</b><br><small>${safe(s.group)} · 현재 ${current.toFixed(1)}%</small></div><div class="amount right">현재 ${money(s.value)}<br><small>목표 ${money(c.total*target/100)}</small><br><small>차이 ${money(diff)}</small></div><label class="field"><span class="sr-only">${safe(s.name)} 목표 비중</span><input type="number" min="0" max="100" step="0.1" data-allocation="${safe(s.id)}" value="${target.toFixed(1)}" ${fixedItem?'disabled':''}></label><div class="action">${safe(act)}</div></div>`}).join(''):'<div class="empty">자산을 추가하면 계획을 세울 수 있습니다.</div>';
-    const allocSum=items.reduce((a,s)=>a+(s.kind==='fixed'?(c.total?s.value/c.total*100:0):num(state.allocations[s.id])),0);$('#allocation-sum').textContent=`종목별 목표 합계 ${allocSum.toFixed(1)}% / 100% ${Math.abs(allocSum-100)>.15?'· 목표를 조정하세요.':'· 목표가 일치합니다.'}`;
-    const mismatch=state.config.risks.filter(r=>Math.abs(items.filter(s=>s.group===r).reduce((a,s)=>a+num(state.allocations[s.id]),0)-num(state.riskTargets[r]))>.15);
-    if(!c.total||Math.abs(riskSum-100)>.15||Math.abs(allocSum-100)>.15||mismatch.length){
-      document.querySelectorAll('#allocation-list .action').forEach(x=>x.textContent='목표 비중 확인 필요');
-      if(mismatch.length)$('#allocation-sum').textContent+=` · 그룹 목표와 불일치: ${mismatch.join(', ')}`;
-    }
-
+  function renderRebalance(c){
+    const v=Portfolio.validateTargets(state),all=Portfolio.items(state);
+    $('#risk-targets').innerHTML=state.config.riskGroups.map(g=>`<label class="target-row"><span>${safe(g.label)}</span><span>현재 ${(all.filter(x=>x.risk===g.id).reduce((a,x)=>a+x.value,0)/Math.max(c.total,1)*100).toFixed(1)}%</span><input aria-label="${safe(g.label)} 목표" type="number" min="0" max="100" step="any" data-risk="${g.id}" value="${num(state.riskTargets[g.id])}"></label>`).join('');
+    $('#target-sum').textContent=`합계 ${v.sum.toFixed(4)}% / 100% · ${v.step1?'STEP 2 사용 가능':'100%를 맞추면 다음 단계가 열립니다.'}`;
+    $('#step2').disabled=!v.step1;$('#step3').disabled=!v.step2;
+    $('#allocation-list').innerHTML=state.config.riskGroups.map(g=>`<div class="card"><b>${safe(g.label)} · 목표 ${num(state.riskTargets[g.id])}%</b>${all.filter(x=>x.risk===g.id).map(x=>`<label class="target-row"><span>${safe(x.name)}${x.kind==='bank'?' (은행 유지)':''}</span><input aria-label="${safe(x.name)} 목표" type="number" min="0" max="100" step="any" data-allocation="${safe(x.id)}" value="${num(state.allocations[x.id])}"><span>%</span></label>`).join('')}<small>그룹 합계 ${v.groups.find(x=>x.id===g.id).sum.toFixed(4)}%</small></div>`).join('');
+    $('#allocation-sum').textContent=v.step2?'목표 일치 · STEP 3 사용 가능':'그룹별 종목 합계를 해당 목표와 맞춰 주세요.';
+    $('#rebalance-basis').textContent=`총자산 ${money(c.total)} · 현금 ${money(c.cashTotal)} · 은행 ${money(c.bankTotal)}. 은행은 그대로 유지합니다. 고정자산도 각 리스크 그룹의 100% 목표에 포함됩니다.`;
+    $('#investment-exclusions').innerHTML=state.stocks.map(x=>`<label class="exclude-row"><input type="checkbox" data-exclude="${safe(x.id)}" ${investmentExcluded.has(x.id)?'checked':''}> ${safe(x.name)} 이번 투자 제외</label>`).join('');
+    $('#plan-output').innerHTML='';activePlan=null;
   }
-
   const field=(name,label,value,type='text',extra='')=>'<label class="field">'+label+'<input name="'+name+'" type="'+type+'" value="'+safe(value??'')+'" '+extra+'></label>';
-  let editorSearchTimer=null,editorSearchSeq=0;
+  let editorSearchTimer=null,editorSearchSeq=0,quoteSequence=0;
   function updateSelectedAssetSummary(){
     const f=$('#editor-form'),box=$('#selected-asset'),buyLabel=$('#buy-price-label');
     if(!f?.elements?.name||!box)return;
     const name=f.elements.name.value,ticker=f.elements.ticker.value,market=f.elements.market.value,foreign=f.elements.foreign.value==='true';
     const currency=foreign?'USD':'KRW';
     box.textContent=name?(name+' · '+ticker+' · '+market+' · '+currency):'종목명 또는 티커를 검색해서 선택하세요.';
-    if(buyLabel)buyLabel.textContent=foreign?'매수 평단가 (USD)':'매수 평단가 (KRW)';
+    if(buyLabel)buyLabel.textContent='원화 기준 매수평단 (원/주·개)';
   }
   async function loadEditorQuote(){
     const f=$('#editor-form'),status=$('#editor-quote-status');
     if(!f?.elements?.ticker?.value)return;
-    const ticker=f.elements.ticker.value,market=f.elements.market.value,foreign=f.elements.foreign.value==='true',currency=foreign?'USD':'KRW';
+    const sequence=++quoteSequence;const ticker=f.elements.ticker.value,market=f.elements.market.value,foreign=f.elements.foreign.value==='true',currency=foreign?'USD':'KRW';
     f.elements.price.value='';
     editQuoteMeta=null;
     if(status)status.textContent='현재가 조회 중…';
     try{
       const q=await api('/api/quote?ticker='+encodeURIComponent(ticker)+'&market='+encodeURIComponent(market||'')+'&currency='+currency);
       if(!Number.isFinite(q.price)||q.price<=0||q.currency!==currency)throw Error('가격·통화 검증 실패');
+      if(sequence!==quoteSequence||f.elements.ticker.value!==ticker)return;
       f.elements.price.value=q.price;
       editQuoteMeta={quoteAsOf:q.asOf||new Date().toISOString(),quoteSource:q.source||'자동 시세',quoteKind:q.kind||'',quoteError:''};
       if(status)status.textContent='현재가 '+Number(q.price).toLocaleString('ko-KR')+' '+currency+' · '+(q.source||'자동 시세');
     }catch(err){
+      if(sequence!==quoteSequence)return;
       editQuoteMeta={quoteAsOf:'',quoteSource:'',quoteKind:'',quoteError:String(err.message||err)};
       if(status)status.textContent='현재가 조회 실패 · 저장 전 다시 조회합니다.';
     }
@@ -148,7 +147,7 @@
     }
   }
   function openEditor(type,id=null,selected=null){
-    editType=type;editId=id;
+    quoteSequence++;editorSearchSeq++;editType=type;editId=id;
     const obj=(type==='stock'?state.stocks:state.savings).find(x=>x.id===id)||selected||{};
     editQuoteMeta=type==='stock'&&id?{quoteAsOf:obj.quoteAsOf||'',quoteSource:obj.quoteSource||'',quoteKind:obj.quoteKind||'',quoteError:obj.quoteError||''}:null;
     $('#editor-title').textContent=(id?'수정':'추가')+' · '+(type==='stock'?'투자 자산':'은행 자산');
@@ -162,12 +161,12 @@
         '<input name="ticker" type="hidden" value="'+safe(obj.ticker||'')+'">'+
         '<input name="market" type="hidden" value="'+safe(obj.market||'')+'">'+
         '<input name="foreign" type="hidden" value="'+(obj.foreign?'true':'false')+'">'+
-        '<label class="field"><span id="buy-price-label">매수 평단가 ('+currency+')</span><input name="buy" type="number" value="'+safe(obj.buy??'')+'" min="0" step="any" required></label>'+
+        '<label class="field"><span id="buy-price-label">매수 평단가 ('+currency+')</span><input name="buy" type="number" value="'+safe(obj.buyKrw??'')+'" min="0" step="any" required></label>'+
         '<label class="field">보유 수량<input name="quantity" type="number" value="'+safe(obj.quantity??'')+'" min="0" step="any" required></label>'+
         '<label class="field">현재가 (자동 조회)<input name="price" type="number" value="'+safe(obj.price??'')+'" min="0" step="any" readonly placeholder="종목 선택 시 자동 조회"></label>'+
         '<div id="editor-quote-status" class="hint" style="align-self:end">'+safe(obj.quoteError||((obj.price!=null&&obj.quoteSource)?('현재가 '+Number(obj.price).toLocaleString('ko-KR')+' '+currency+' · '+obj.quoteSource):'종목 선택 시 현재가가 자동 조회됩니다.'))+'</div>'+
-        '<label class="field">리스크 분류<select name="risk">'+[...new Set([...state.config.risks,...(obj.risk?[obj.risk]:[])])].map(r=>'<option value="'+safe(r)+'" '+(obj.risk===r?'selected':'')+'>'+safe(r)+'</option>').join('')+'</select></label>'+
-        '<p class="hint" style="grid-column:1/-1">종목명이나 티커 하나만 검색하면 종목명·티커·시장·통화·현재가가 자동으로 채워집니다. 해외 주식은 달러 기준 매수 평단만 입력하세요. 환율은 앱이 자동 적용합니다.</p>';
+        '<label class="field">리스크 분류<select name="risk">'+[...new Set([...state.config.risks,...(obj.risk?[obj.risk]:[])])].map(r=>'<option value="'+safe(r)+'" '+(obj.risk===r?'selected':'')+'>'+safe(riskLabel(r))+'</option>').join('')+'</select></label>'+
+        '<p class="hint" style="grid-column:1/-1">종목명이나 티커 하나만 검색하면 종목명·티커·시장·통화·현재가가 자동으로 채워집니다. 해외 주식도 원화 기준 매수평단을 입력하세요. 현재 평가액 환율은 자동 적용합니다.</p>';
       updateSelectedAssetSummary();
     }else{
       $('#editor-fields').innerHTML='<label class="field">종류<select name="type">'+['적금','주택청약','예금','파킹통장'].map(t=>'<option '+(obj.type===t?'selected':'')+'>'+t+'</option>').join('')+'</select></label>'+field('name','상품명',obj.name,'text','required')+field('amount','회차별 납입액 또는 현재 잔액 (원)',obj.amount??'','number','min="0" step="1" required')+field('current','현재 납입 회차',obj.current??1,'number','min="0" step="1" required')+field('total','총 만기 회차',obj.total??1,'number','min="1" step="1" required')+field('rate','연 이율 (%) · 평가액에 미반영',obj.rate??0,'number','min="0" step="any" required')+'<p class="hint" style="grid-column:1/-1">예금·파킹통장은 입력한 현재 잔액을 그대로 사용합니다. 적금·주택청약은 회차별 납입액 × 현재 회차로 계산합니다.</p>';
@@ -175,17 +174,17 @@
     $('#editor').showModal();
     if(type==='stock'){
       const lookup=$('#asset-lookup');
-      lookup.oninput=e=>{clearTimeout(editorSearchTimer);const q=e.target.value.trim();editorSearchTimer=setTimeout(()=>searchEditorMarket(q),250)};
+      lookup.oninput=e=>{editorSearchSeq++;clearTimeout(editorSearchTimer);const q=e.target.value.trim();editorSearchTimer=setTimeout(()=>searchEditorMarket(q),250)};
       if(!id)lookup.focus();
     }
   }
 
   $('#editor-form').addEventListener('submit',async e=>{
     e.preventDefault();
-    const fd=new FormData(e.currentTarget),val=k=>String(fd.get(k)||'').trim(),n=k=>Number(fd.get(k));
+    const form=e.currentTarget,fd=new FormData(form),val=k=>String(fd.get(k)||'').trim(),n=k=>Number(fd.get(k));
     let item;
     if(editType==='stock'){
-      item={id:editId||uid(),name:val('name'),ticker:val('ticker').toUpperCase(),buy:n('buy'),quantity:n('quantity'),price:val('price')===''?null:n('price'),foreign:val('foreign')==='true',risk:val('risk'),market:val('market')||(val('foreign')==='true'?'US':'KRX'),buyFx:null};
+      item={id:editId||uid(),name:val('name'),ticker:val('ticker').toUpperCase(),buyKrw:n('buy'),buy:n('buy')/(val('foreign')==='true'?state.config.fx:1),quantity:n('quantity'),price:val('price')===''?null:n('price'),foreign:val('foreign')==='true',risk:val('risk'),market:val('market')||(val('foreign')==='true'?'US':'KRX'),buyFx:val('foreign')==='true'?state.config.fx:null};
       if(!item.name||!item.ticker){toast('종목명 또는 티커를 검색해서 종목을 선택하세요.');return}
       if(!(item.price>0)){
         try{
@@ -194,7 +193,7 @@
           if(!Number.isFinite(q.price)||q.price<=0||q.currency!==currency)throw Error('가격·통화 검증 실패');
           item.price=q.price;
           editQuoteMeta={quoteAsOf:q.asOf||new Date().toISOString(),quoteSource:q.source||'자동 시세',quoteKind:q.kind||'',quoteError:''};
-          if(e.currentTarget.elements.price)e.currentTarget.elements.price.value=q.price;
+          if(form.elements.price)form.elements.price.value=q.price;
         }catch(err){
           toast('현재가를 불러오지 못했습니다. 잠시 후 다시 저장해 주세요.');
           return;
@@ -204,25 +203,25 @@
       item={id:editId||uid(),type:val('type'),name:val('name'),amount:n('amount'),current:n('current'),total:n('total'),rate:n('rate')};
     }
     const arr=editType==='stock'?state.stocks:state.savings;
-    const idx=arr.findIndex(x=>x.id===editId);
+    const idx=arr.findIndex(x=>x.id===editId);if(editType==='bank')item.risk=arr[idx]?.risk||state.config.cashRiskId;
     if(editType==='stock'){
       if(item.ticker.endsWith('.KQ'))item.market='KOSDAQ';
       if(item.ticker.endsWith('.KS'))item.market='KOSPI';
       item.ticker=item.ticker.replace(/\.(KS|KQ)$/,'');
       if(!item.foreign&&/^\d{1,6}$/.test(item.ticker))item.ticker=item.ticker.padStart(6,'0');
-      const old=arr[idx];
+      const old=arr[idx];if(old&&old.buyKrw===item.buyKrw){item.buy=old.buy;item.buyFx=old.buyFx;}
       if(editQuoteMeta)Object.assign(item,editQuoteMeta);
       else if(old&&old.price===item.price&&old.ticker===item.ticker&&old.foreign===item.foreign)Object.assign(item,{quoteAsOf:old.quoteAsOf,quoteSource:old.quoteSource,quoteError:old.quoteError,quoteKind:old.quoteKind});
       else Object.assign(item,{quoteAsOf:new Date().toISOString(),quoteSource:'자동 시세',quoteError:'',quoteKind:''});
       const same=idx<0&&item.ticker?arr.find(x=>x.ticker===item.ticker&&x.foreign===item.foreign):null;
       if(same){
         if(!confirm('이미 보유한 종목입니다. 입력한 수량을 추가 매수로 합산하고 가중 평단을 계산할까요?'))return;
-        const q=same.quantity+item.quantity,totalCost=same.buy*same.quantity+item.buy*item.quantity;
-        const merged={...same,quantity:q,buy:q?totalCost/q:0,buyFx:null,risk:item.risk,price:item.price||same.price};
+        const q=same.quantity+item.quantity,totalCost=same.buyKrw*same.quantity+item.buyKrw*item.quantity;
+        const merged={...same,quantity:q,buyKrw:q?totalCost/q:0,risk:item.risk,price:item.price||same.price};
         if(editQuoteMeta)Object.assign(merged,editQuoteMeta);
         const next=structuredClone(state);
         next.stocks[next.stocks.findIndex(x=>x.id===same.id)]=merged;
-        try{state=normalize(next)}catch(err){toast(err.message);return}
+        try{state=Portfolio.distribute(normalize(next),'equal',true)}catch(err){toast(err.message);return}
         $('#editor').close();
         if(persist())toast('추가 매수를 합산했습니다.');
         return;
@@ -230,7 +229,7 @@
     }
     const next=structuredClone(state),dest=editType==='stock'?next.stocks:next.savings;
     if(idx<0)dest.push(item);else dest[idx]=item;
-    try{state=normalize(next)}catch(err){toast(err.message);return}
+    try{state=Portfolio.distribute(normalize(next),'equal',true)}catch(err){toast(err.message);return}
     $('#editor').close();
     if(persist()){
       toast('자산이 저장되었습니다.');
@@ -276,19 +275,18 @@
       return;
     }
   });
-  $('#add-stock').onclick=()=>openEditor('stock');$('#add-bank').onclick=()=>openEditor('bank');$('#backup-btn').onclick=()=>$('#backup').showModal();$('#refresh-market').onclick=()=>refreshMarket(true);$('#settings-btn').onclick=()=>{const f=$('#settings-form');f.elements.target.value=state.config.target;f.elements.fx.value=state.config.fx;f.elements.risks.value=state.config.risks.join(', ');f.elements.refreshMinutes.value=state.config.refreshMinutes??5;$('#settings').showModal()};
-  $('#settings-form').onsubmit=e=>{e.preventDefault();const f=e.currentTarget,risks=f.elements.risks.value.split(',').map(x=>x.trim()).filter(Boolean);if(!risks.length||new Set(risks).size!==risks.length){toast('리스크 분류를 중복 없이 입력하세요.');return}if(!risks.includes('안전')||risks.includes('고정(은행)')||state.stocks.some(s=>!risks.includes(s.risk))){toast('사용 중인 분류와 안전 분류는 유지하고 고정(은행)은 제외하세요.');return}
-    const fx=Number(f.elements.fx.value);state.config={...state.config,target:Number(f.elements.target.value),fx,risks,refreshMinutes:Number(f.elements.refreshMinutes.value),...(fx!==state.config.fx?{fxSource:'수동 입력',fxAsOf:new Date().toISOString(),fxError:''}:{})};$('#settings').close();if(persist()){startRefreshTimer();toast('설정이 저장되었습니다.')}};
-  document.addEventListener('change',e=>{if(e.target.dataset.risk!==undefined){state.riskTargets[e.target.dataset.risk]=Math.max(0,Math.min(100,num(e.target.value)));persist({record:false})}if(e.target.dataset.allocation!==undefined){state.allocations[e.target.dataset.allocation]=Math.max(0,Math.min(100,num(e.target.value)));persist({record:false})}});
+  $('#add-stock').onclick=()=>openEditor('stock');$('#add-bank').onclick=()=>openEditor('bank');$('#backup-btn').onclick=()=>$('#backup').showModal();$('#refresh-market').onclick=()=>refreshMarket(true);$('#settings-btn').onclick=openSettings;
+  $('#settings-form').onsubmit=saveSettings;
+  document.addEventListener('change',e=>{if(e.target.dataset.risk!==undefined){state.riskTargets[e.target.dataset.risk]=Math.max(0,Math.min(100,num(e.target.value)));state=Portfolio.distribute(state,'equal',true);persist({record:false})}if(e.target.dataset.allocation!==undefined){state.allocations[e.target.dataset.allocation]=Math.max(0,Math.min(100,num(e.target.value)));persist({record:false})}});
   $('#export-btn').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`my-asset-hub-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-  const APP_VERSION='0.6.0-dev';
-  const BUILD_ID='20260926-01';
+  const APP_VERSION='0.7.0-beta.1';
+  const BUILD_ID='20260926-beta-02';
   let refreshBusy=false,autoTimer=null,searchTimer=null,searchOffset=0,searchSequence=0,pendingImport=null;
   const API_BASE=String(window.ASSET_HUB_API_BASE||'').replace(/\/$/,'');
   async function api(path){const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);try{const r=await fetch(API_BASE+path,{signal:ctl.signal,headers:{accept:'application/json'},cache:'no-store'});const d=await r.json();if(!r.ok||d.error)throw Error(d.error||`API ${r.status}`);return d}finally{clearTimeout(timer)}}
   async function checkBuildStatus(){
     const el=$('#build-status'),versionEl=$('#version-label');
-    if(versionEl)versionEl.textContent=`v${APP_VERSION} · build ${BUILD_ID}`;
+    if(versionEl)versionEl.textContent=`TEST · v${APP_VERSION} · build ${BUILD_ID}`;
     if(!el)return;
     el.textContent=`build ${BUILD_ID} 확인 중…`;
     try{
@@ -311,41 +309,65 @@
   async function searchMarket(q){const seq=++searchSequence,box=$('#market-results');box.innerHTML='<div class="empty">검색 중…</div>';try{const data=await api(`/api/search?q=${encodeURIComponent(q)}&market=${encodeURIComponent($('#market-filter').value)}&offset=${searchOffset}`);if(seq!==searchSequence)return;box._items=data.results||[];box.innerHTML=box._items.length?box._items.map((x,i)=>`<button type="button" class="btn" data-market-pick="${i}" style="text-align:left;white-space:normal">${safe(x.name)} · ${safe(x.ticker||x.symbol)} · ${safe(x.market)}</button>`).join(''):'<div class="empty">검색 결과가 없습니다. 직접 티커 입력도 가능합니다.</div>';$('#search-status').textContent=`${data.total??box._items.length}개 · 시장목록 ${data.generatedAt?.slice(0,10)||'조회 중'}${data.warning?' · 보완 검색 실패':''}`;$('#more-market').disabled=searchOffset+50>=(data.total||0)}catch(e){if(seq!==searchSequence)return;box._items=[];box.innerHTML='<div class="empty">검색 API에 연결하지 못했습니다. 온라인 연결·Worker 주소를 확인하세요.</div>';$('#search-status').textContent=e.message;$('#more-market').disabled=true}}
   $('#market-query').oninput=e=>{clearTimeout(searchTimer);searchSequence++;searchOffset=0;const q=e.target.value.trim();searchTimer=setTimeout(()=>searchMarket(q),300)};
   $('#market-filter').onchange=()=>{searchOffset=0;searchMarket($('#market-query').value.trim())};$('#more-market').onclick=()=>{searchOffset+=50;searchMarket($('#market-query').value.trim())};
-  $('#distribute').onclick=()=>{const c=calc();for(const r of state.config.risks){const items=[...c.stocks.filter(s=>s.risk===r),...(r==='안전'?c.banks.filter(s=>!s.fixed):[])],sum=items.reduce((a,s)=>a+s.value,0);for(const s of items)state.allocations[s.id]=num(state.riskTargets[r])*(sum?s.value/sum:1/items.length)}persist({record:false})};
+  $('#distribute').onclick=()=>{state=Portfolio.distribute(state,'value');persist({record:false})};
+  $('#equal-distribute').onclick=()=>{state=Portfolio.distribute(state,'equal');persist({record:false})};
+  function openSettings(){riskDraft=structuredClone(state.config.riskGroups);riskMoves={};const f=$('#settings-form');for(const k of ['target','fx','monthlyInvestment','minCash','minCashMode','refreshMinutes'])f.elements[k].value=state.config[k];renderRiskEditor(state.config.cashRiskId);$('#settings').showModal();}
+  function renderRiskEditor(cashId=$('#cash-risk').value){$('#risk-editor').innerHTML=riskDraft.map(g=>`<div class="risk-edit-row"><input aria-label="분류 이름" data-risk-label="${g.id}" value="${safe(g.label)}"><input aria-label="분류 설명" data-risk-description="${g.id}" value="${safe(g.description)}" placeholder="설명"><button type="button" class="btn small danger" data-remove-risk="${g.id}">삭제·이동</button></div>`).join('');$('#cash-risk').innerHTML=riskDraft.map(g=>`<option value="${g.id}">${safe(g.label)}</option>`).join('');$('#cash-risk').value=riskDraft.some(g=>g.id===cashId)?cashId:riskDraft.at(-1).id;}
+  $('#risk-editor').oninput=e=>{const id=e.target.dataset.riskLabel||e.target.dataset.riskDescription,g=riskDraft.find(g=>g.id===id);if(g)g[e.target.dataset.riskLabel?'label':'description']=e.target.value};
+  let removingRisk=null;
+  $('#risk-editor').onclick=e=>{const b=e.target.closest('[data-remove-risk]');if(!b)return;if(riskDraft.length<2){toast('최소 한 분류는 유지해야 합니다.');return}removingRisk=b.dataset.removeRisk;$('#risk-move-target').innerHTML=riskDraft.filter(g=>g.id!==removingRisk).map(g=>`<option value="${g.id}">${safe(g.label)}</option>`).join('');$('#risk-move').showModal()};
+  $('#confirm-risk-move').onclick=()=>{const dest=$('#risk-move-target').value;for(const [k,v]of Object.entries(riskMoves))if(v===removingRisk)riskMoves[k]=dest;riskMoves[removingRisk]=dest;riskDraft=riskDraft.filter(g=>g.id!==removingRisk);const cashId=$('#cash-risk').value;renderRiskEditor(cashId===removingRisk?dest:cashId);$('#risk-move').close()};
+  $('#add-risk').onclick=()=>{riskDraft.push({id:'risk_'+uid().replace(/-/g,''),label:'새 분류 '+(riskDraft.length+1),description:''});renderRiskEditor()};
+  function saveSettings(e){e.preventDefault();try{const f=e.currentTarget;let next=Portfolio.renameRisks(state,riskDraft,f.elements.cashRiskId.value,riskMoves);for(const k of ['target','monthlyInvestment','minCash','refreshMinutes'])next.config[k]=Number(f.elements[k].value);next.config.minCashMode=f.elements.minCashMode.value;next=normalize(next);if(commitState(next)){ $('#settings').close();$('#contribution').value=state.config.monthlyInvestment;startRefreshTimer();toast('설정을 저장했습니다.')}}catch(e){toast(e.message)}}
+  function commitState(next,{backupKey=null,record=true}={}){if(storageBlocked){toast('원본 보호 상태에서는 적용할 수 없습니다.');return false}const previous=state;try{const saved=localStorage.getItem(KEY);if(saved&&Number(JSON.parse(saved).revision)!==state.revision)throw Error('다른 화면에서 변경되었습니다. 새로고침 후 진행하세요.');next=normalize(next);if(backupKey)localStorage.setItem(backupKey,JSON.stringify({state:previous,transactionId:next.transactions.at(-1)?.id}));state=next;if(!persist({record}))throw Error('저장에 실패했습니다. 적용되지 않았습니다.');return true}catch(e){state=previous;render();toast(e.message);return false}}
+  $('#edit-cash').onclick=()=>{const raw=prompt('현금/예수금 잔액 (원)',String(state.cash.amount));if(raw===null)return;try{const next=structuredClone(state),amount=finite(raw,'현금'),delta=amount-next.cash.amount;next.cash.amount=amount;if(delta)next.cashflows.push({id:uid(),at:new Date().toISOString(),amount:delta,type:'manual-cash-adjustment'});commitState(next)}catch(e){toast(e.message)}};
+  $('#investment-exclusions').onchange=e=>{const id=e.target.dataset.exclude;if(!id)return;if(e.target.checked)investmentExcluded.add(id);else investmentExcluded.delete(id);activePlan=null;$('#plan-output').innerHTML='설정이 변경되었습니다. 다시 계산하세요.'};
+  for(const selector of ['#plan-mode','#contribution','#investment-method'])$(selector).onchange=()=>{activePlan=null;$('#plan-output').innerHTML='다시 계산하여 계획을 확인하세요.'};
+  $('#calculate-plan').onclick=()=>{try{activePlan=Portfolio.plan(state,{mode:$('#plan-mode').value,contribution:Number($('#contribution').value),method:$('#investment-method').value,excluded:[...investmentExcluded]});renderPlan(activePlan)}catch(e){activePlan=null;$('#plan-output').textContent=e.message}};
+  function renderPlan(p){$('#plan-output').innerHTML=p.warnings.map(x=>`<div class="notice">${safe(x)}</div>`).join('')+`<h3>${p.mode==='investment'?'신규 투자':'리밸런싱'} 전 / 후</h3><p>${p.mode==='investment'?'기존 자산 매도 없이 신규자금 '+money(p.contribution)+'만 배분합니다.':'매도 → 현금 확보 → 매수 순서입니다.'}</p><p>USD/KRW ${p.fx.toLocaleString()} · ${new Date(p.at).toLocaleString('ko-KR')}</p>`+p.afterGroups.map(g=>`<div class="trade-card"><b>${safe(riskLabel(g.id))}</b><div>현재 ${g.before.toFixed(1)}% → 실행 후 ${g.after.toFixed(1)}% / 목표 ${g.target.toFixed(1)}%</div></div>`).join('')+p.trades.map(t=>`<div class="trade-card"><b>${safe(t.name)}</b><h3>${t.current} → ${Number(t.target.toFixed(8))} ${t.crypto?'개':'주'}</h3><p>${t.delta<0?'매도':t.delta>0?'매수':'유지'} ${Math.abs(t.delta)} · ${money(t.amount)}</p><div class="trade-stats"><span>현재가 ${t.price} ${t.foreign?'USD':'KRW'}</span><span>현재 비중 ${t.currentPct.toFixed(1)}%</span><span>목표 ${t.targetPct.toFixed(1)}%</span><span>실행 후 ${t.afterPct.toFixed(1)}%</span><span>오차 ${(t.afterPct-t.targetPct).toFixed(1)}%p</span><span>${p.mode==='investment'?(p.method==='deficit'?'목표 부족분 우선':'설정한 적립 비중 반영'):'목표 수량과 예산 반영'}</span></div></div>`).join('')+`<h3>잔여 현금/예수금 ${money(p.cashAfter)}</h3><p class="hint">체결가·부분체결·수수료에 따라 달라집니다. 최소 현금 ${money(p.minCash)}. 정수 수량 조정은 근사 최적안입니다.</p><button class="btn primary" id="start-fills">${p.mode==='investment'?'구매 진행':'실제 체결 확인'}</button>`;$('#start-fills').onclick=openFills;}
+  function openFills(){if(!activePlan)return;$('#fills-list').innerHTML=activePlan.trades.filter(t=>t.delta).sort((a,b)=>a.delta-b.delta).map(t=>`<div class="fill-card" data-fill-id="${safe(t.id)}"><b>${safe(t.name)} · ${t.delta<0?'매도':'매수'}</b><p>추천 ${Math.abs(t.delta)} × ${t.price} ${t.foreign?'USD':'KRW'}</p><div class="fields"><label class="field">실제 체결수량<input data-fill-qty type="number" min="0" max="${Math.abs(t.delta)}" step="${t.crypto?'0.00000001':'1'}" value="${Math.abs(t.delta)}" required></label><label class="field">실제 체결가격 (${t.foreign?'USD':'KRW'})<input data-fill-price type="number" min="0.00000001" step="any" value="${t.price}" required></label><label class="field">수수료 (원)<input data-fill-fee type="number" min="0" step="any" value="0" required></label></div><button class="btn small" type="button" data-unfilled>미체결 (0)</button></div>`).join('')||'<p>거래 없이 투입금이 현금으로 기록됩니다.</p>';$('#fills-dialog').showModal();}
+  $('#fills-list').onclick=e=>{const b=e.target.closest('[data-unfilled]');if(b){const row=b.closest('[data-fill-id]');row.querySelector('[data-fill-qty]').value=0;row.querySelector('[data-fill-fee]').value=0}};
+  $('#fills-form').onsubmit=e=>{e.preventDefault();try{if(!activePlan)throw Error('자산 또는 시세가 변경되었습니다. 다시 계산하세요.');const p=activePlan,fills=[...document.querySelectorAll('[data-fill-id]')].map(row=>({id:row.dataset.fillId,quantity:Number(row.querySelector('[data-fill-qty]').value),price:Number(row.querySelector('[data-fill-price]').value),fee:Number(row.querySelector('[data-fill-fee]').value)}));const next=Portfolio.execute(state,p,fills);if(!confirm(`${p.mode==='investment'?'투자':'리밸런싱'}를 완료하셨습니까?\n완료하면 보유수량, 평단가, 현금 및 투자 이력이 변경됩니다.`))return;if(commitState(next,{backupKey:KEY+'-before-'+p.mode})){activePlan=null;$('#fills-dialog').close();toast('실제 체결을 반영했습니다.')}}catch(e){alert(e.message)}};
+  function undo(type){try{const raw=localStorage.getItem(KEY+'-before-'+type);if(!raw)throw Error('되돌릴 기록이 없습니다.');const saved=JSON.parse(raw);if(state.transactions.at(-1)?.id!==saved.transactionId)throw Error('가장 최근 실행만 되돌릴 수 있습니다. 이후 거래가 있습니다.');if(!confirm('직전 실행 전 전체 자산·설정·기록으로 복구합니다. 실행 이후 직접 수정한 내용도 되돌아갑니다. 계속할까요?'))return;const next=normalize(saved.state);next.revision=state.revision;if(commitState(next,{record:false})){localStorage.removeItem(KEY+'-before-'+type);toast('이전 상태를 복구했습니다.')}}catch(e){toast(e.message)}}
+  $('#undo-rebalance').onclick=()=>undo('rebalance');$('#undo-investment').onclick=()=>undo('investment');
+  function renderTransactions(){$('#transactions-list').innerHTML=state.transactions.slice().reverse().map(t=>`<div class="trade-card"><b>${safe(t.at)} · ${t.type==='investment'?'신규 투자':'리밸런싱'}</b><p>투입 ${money(t.contribution)} / 실제 매수 ${money(t.actualInvestment)} / 잔여 현금 ${money(t.cashAfter)}</p><small>총자산 ${money(t.beforeTotal)} → ${money(t.afterTotal)}</small>${(t.trades||[]).map(x=>`<p>${safe(x.name)} ${x.side==='buy'?'+':'−'}${x.quantity} × ${x.price} ${safe(x.currency)} · 수수료 ${money(x.fee)}</p>`).join('')}</div>`).join('')||'<p class="hint">실제 완료한 투자만 기록됩니다.</p>';}
+
   const EXCEL_HEADERS={
-    '투자자산':['ID','종목명','티커','시장','통화','매수평단가','보유수량','현재가','매수환율','리스크','가격기준시각','가격출처','가격유형','해외여부'],
+    '투자자산':['ID','종목명','티커','시장','통화','매수평단가','보유수량','현재가','매수환율','리스크','가격기준시각','가격출처','가격유형','해외여부','원화매수평단'],
     '은행자산':['ID','종류','상품명','금액','현재회차','총회차','이율'],
     '설정':['항목','값'], '자산기록':['날짜','총자산'], '리스크목표':['리스크','목표비중'], '종목목표':['ID','목표비중']
   };
   function workbookRows(){return {
-    '투자자산':state.stocks.map(s=>[s.id,s.name,s.ticker,s.market,s.foreign?'USD':'KRW',s.buy,s.quantity,s.price,s.buyFx,s.risk,s.quoteAsOf||'',s.quoteSource||'',s.quoteKind||'',s.foreign]),
+    '투자자산':state.stocks.map(s=>[s.id,s.name,s.ticker,s.market,s.foreign?'USD':'KRW',s.buy,s.quantity,s.price,s.buyFx,riskLabel(s.risk),s.quoteAsOf||'',s.quoteSource||'',s.quoteKind||'',s.foreign,s.buyKrw]),
     '은행자산':state.savings.map(s=>[s.id,s.type,s.name,s.amount,s.current,s.total,s.rate]),
-    '설정':[['target_asset',state.config.target],['fx',state.config.fx],['risk_levels',state.config.risks.join(',')],['refreshMinutes',state.config.refreshMinutes||0],['fxAsOf',state.config.fxAsOf||''],['fxSource',state.config.fxSource||'수동']],
-    '자산기록':state.history.map(h=>[h.date,h.total]),'리스크목표':state.config.risks.map(r=>[r,num(state.riskTargets[r])]),'종목목표':Object.entries(state.allocations)
+    '설정':[['target_asset',state.config.target],['fx',state.config.fx],['risk_levels',state.config.riskGroups.map(g=>g.label).join(',')],['refreshMinutes',state.config.refreshMinutes||0],['fxAsOf',state.config.fxAsOf||''],['fxSource',state.config.fxSource||'수동']],
+    '자산기록':state.history.map(h=>[h.date,h.total]),'리스크목표':state.config.risks.map(r=>[riskLabel(r),num(state.riskTargets[r])]),'종목목표':Object.entries(state.allocations)
   }}
   function exportExcel(){if(!globalThis.XLSX){toast('엑셀 모듈을 불러오지 못했습니다. JSON 백업을 사용하세요.');return}
     const wb=XLSX.utils.book_new(),rows=workbookRows();for(const [name,headers]of Object.entries(EXCEL_HEADERS)){const ws=XLSX.utils.aoa_to_sheet([headers,...rows[name]]);ws['!cols']=headers.map(h=>({wch:h==='종목명'||h==='상품명'?28:h==='ID'?38:h.includes('시각')?28:17}));ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows[name].length,c:headers.length-1}})};XLSX.utils.book_append_sheet(wb,ws,name)}
+    const meta=JSON.stringify(state),chunks=[];for(let i=0;i<meta.length;i+=20000)chunks.push([i/20000,meta.slice(i,i+20000)]);XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['순서','백업 JSON (수정 금지)'],...chunks]),'v07백업');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['현금명','금액'],[state.cash.name,state.cash.amount]]),'현금');
     XLSX.writeFile(wb,`MyAssetHub-${today()}.xlsx`);
   }
   function readWorkbook(wb){
+    if(wb.Sheets['v07백업']){const entries=XLSX.utils.sheet_to_json(wb.Sheets['v07백업'],{header:1}).slice(1);const base=normalize(JSON.parse(entries.map(r=>r[1]).join('')));const without={...wb,Sheets:{...wb.Sheets}};delete without.Sheets['v07백업'];const core=readWorkbook(without);const byLabel=Object.fromEntries(base.config.riskGroups.map(g=>[g.label,g.id]));const coreLabels=Object.fromEntries(core.config.riskGroups.map(g=>[g.id,g.label]));base.stocks=core.stocks.map(x=>({...x,risk:byLabel[coreLabels[x.risk]]}));base.savings=core.savings.map(x=>({...x,risk:base.savings.find(b=>b.id===x.id)?.risk||base.config.cashRiskId}));base.history=core.history;base.allocations=core.allocations;base.riskTargets=Object.fromEntries(Object.entries(core.riskTargets).map(([r,n])=>[byLabel[coreLabels[r]],n]));base.config.target=core.config.target;base.config.fx=core.config.fx;const cash=wb.Sheets['현금']?XLSX.utils.sheet_to_json(wb.Sheets['현금'],{header:1})[1]:null;if(cash)base.cash={...base.cash,name:String(cash[0]),amount:finite(cash[1],'현금')};return normalize(base);}
     if(wb.Sheets.stocks||wb.Sheets.savings){
       const rows=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):[];
       const stocks=rows('stocks').map(s=>{const ticker=String(s['티커']??s.ticker??'').replace(/\.(KS|KQ)$/,'');const existing=state.stocks.find(x=>x.ticker===ticker);return {...s,id:s.id||existing?.id||uid(),price:s['현재가']??s.price,buyFx:s['매수환율']??s.buyFx,market:s['시장']??s.market}});
       const savings=rows('savings').map(s=>({...s,id:s.id||state.savings.find(x=>x.name===s['상품명']&&x.type===s['종류'])?.id||uid(),amount:s['금액']??s['월납입액']??s.amount}));
-      const c=rows('config')[0]||{},cfg={...state.config,...c,target:c['목표금액']??c.target??c.target_asset??state.config.target,fx:c['USD_KRW']??c.fx??state.config.fx,risks:c['리스크분류']?String(c['리스크분류']).split(','):c.risk_levels?String(c.risk_levels).split(','):state.config.risks};
-      return normalize({stocks,savings,config:cfg,history:wb.Sheets.history?rows('history'):state.history,riskTargets:state.riskTargets,allocations:state.allocations});
+      const c=rows('config')[0]||{},cfg={...state.config,risks:state.config.riskGroups.map(g=>g.label),...c,target:c['목표금액']??c.target??c.target_asset??state.config.target,fx:c['USD_KRW']??c.fx??state.config.fx,risks:c['리스크분류']?String(c['리스크분류']).split(','):c.risk_levels?String(c.risk_levels).split(','):state.config.riskGroups.map(g=>g.label)};
+      return normalize({stocks,savings,config:cfg,history:wb.Sheets.history?rows('history'):state.history,cash:state.cash,transactions:state.transactions,cashflows:state.cashflows,riskTargets:Object.fromEntries(Object.entries(state.riskTargets).map(([r,v])=>[riskLabel(r),v])),allocations:state.allocations});
     }
     for(const name of ['투자자산','은행자산','설정'])if(!wb.Sheets[name])throw Error(`${name} 시트가 없습니다. 앱에서 내려받은 엑셀을 사용하세요.`);
     const read=name=>{if(!wb.Sheets[name])return null;const sheet=wb.Sheets[name],range=XLSX.utils.decode_range(sheet['!ref']||'A1');if(range.e.r>20000||range.e.c>50)throw Error('시트 크기가 너무 큽니다.');
-      const arr=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});if(EXCEL_HEADERS[name].some((h,i)=>arr[0]?.[i]!==h&&!(name==='투자자산'&&h==='해외여부'&&arr[0]?.[i]==null)))throw Error(`${name} 머리글이 변경되었습니다.`);
+      const arr=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});if(EXCEL_HEADERS[name].some((h,i)=>arr[0]?.[i]!==h&&!(name==='투자자산'&&['해외여부','원화매수평단'].includes(h)&&arr[0]?.[i]==null)))throw Error(`${name} 머리글이 변경되었습니다.`);
       for(let r=1;r<=range.e.r;r++)for(let c=0;c<EXCEL_HEADERS[name].length;c++){const cell=sheet[XLSX.utils.encode_cell({r,c})];if(cell?.f)throw Error(`${name} ${r+1}행: 가져오기 영역의 수식은 값으로 붙여넣어 주세요.`)}
       return arr.slice(1).filter(row=>row.some(v=>v!==''&&v!=null));
     };
     const cfg=Object.fromEntries(read('설정'));
-    const stocks=read('투자자산').map(r=>{if(!['KRW','USD'].includes(String(r[4]).toUpperCase()))throw Error('투자자산 통화는 KRW 또는 USD입니다.');if(r[13]!==undefined&&r[13]!==''&&bool(r[13])!==(String(r[4]).toUpperCase()==='USD'))throw Error('통화와 해외여부가 일치하지 않습니다.');return {id:r[0],name:r[1],ticker:String(r[2]),market:r[3],foreign:String(r[4]).toUpperCase()==='USD',buy:r[5],quantity:r[6],price:r[7],buyFx:r[8],risk:r[9],quoteAsOf:r[10],quoteSource:r[11],quoteKind:r[12]}});
+    const stocks=read('투자자산').map(r=>{if(!['KRW','USD'].includes(String(r[4]).toUpperCase()))throw Error('투자자산 통화는 KRW 또는 USD입니다.');if(r[13]!==undefined&&r[13]!==''&&bool(r[13])!==(String(r[4]).toUpperCase()==='USD'))throw Error('통화와 해외여부가 일치하지 않습니다.');return {id:r[0],name:r[1],ticker:String(r[2]),market:r[3],foreign:String(r[4]).toUpperCase()==='USD',buy:r[5],quantity:r[6],price:r[7],buyFx:r[8],risk:r[9],quoteAsOf:r[10],quoteSource:r[11],quoteKind:r[12],buyKrw:r[14]===''?undefined:r[14]}});
     const savings=read('은행자산').map(r=>({id:r[0],type:r[1],name:r[2],amount:r[3],current:r[4],total:r[5],rate:r[6]}));
     const historyRows=read('자산기록');const history=historyRows===null?state.history:historyRows.map(r=>{let date=r[0];if(typeof date==='number'){const d=XLSX.SSF.parse_date_code(date);date=`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`}return {date,total:r[1]}});
-    return normalize({stocks,savings,config:cfg,history,riskTargets:Object.fromEntries(read('리스크목표')||Object.entries(state.riskTargets)),allocations:Object.fromEntries(read('종목목표')||Object.entries(state.allocations))});
+    return normalize({stocks,savings,config:cfg,history,cash:state.cash,transactions:state.transactions,cashflows:state.cashflows,riskTargets:Object.fromEntries(read('리스크목표')||Object.entries(state.riskTargets).map(([r,v])=>[riskLabel(r),v])),allocations:Object.fromEntries(read('종목목표')||Object.entries(state.allocations))});
   }
   function previewImport(incoming,label){pendingImport=incoming;const incomingIDs=new Set([...incoming.stocks,...incoming.savings].map(s=>s.id)),oldIDs=new Set([...state.stocks,...state.savings].map(s=>s.id));
     $('#import-summary').textContent=`${label}: 투자 ${incoming.stocks.length}개 · 은행 ${incoming.savings.length}개 · 기록 ${incoming.history.length}개. 새 ID ${[...incomingIDs].filter(x=>!oldIDs.has(x)).length}개 / 기존 ID ${[...incomingIDs].filter(x=>oldIDs.has(x)).length}개 / 빠지는 ID ${[...oldIDs].filter(x=>!incomingIDs.has(x)).length}개.`;
@@ -354,9 +376,9 @@
   $('#restore-previous').onclick=()=>{try{const raw=localStorage.getItem(KEY+'-recovery');if(!raw)throw Error('아직 복구 사본이 없습니다.');previewImport(normalize(JSON.parse(raw)),'직전 데이터')}catch(e){toast(e.message)}};
   $('#excel-export-btn').onclick=exportExcel;
   $('#excel-import-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>10_000_000)throw Error('10MB 이하의 엑셀을 사용하세요.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});previewImport(readWorkbook(wb),'엑셀')}catch(err){alert('가져오기 실패: '+err.message)}finally{e.target.value=''}};
-  $('#import-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>5_000_000)throw Error('5MB 이하의 JSON을 사용하세요.');const raw=JSON.parse(await file.text());if(!Object.hasOwn(raw,'stocks')||!Object.hasOwn(raw,'savings'))throw Error('자산 백업 파일이 아닙니다.');previewImport(normalize({...raw,history:raw.history??state.history}),'JSON')}catch(err){alert('복원 실패: '+err.message)}finally{e.target.value=''}};
+  $('#import-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>5_000_000)throw Error('5MB 이하의 JSON을 사용하세요.');const raw=JSON.parse(await file.text());if(!Object.hasOwn(raw,'stocks')||!Object.hasOwn(raw,'savings'))throw Error('자산 백업 파일이 아닙니다.');previewImport(normalize({...raw,history:raw.history??state.history,cash:raw.cash??state.cash,transactions:raw.transactions??state.transactions,cashflows:raw.cashflows??state.cashflows}),'JSON')}catch(err){alert('복원 실패: '+err.message)}finally{e.target.value=''}};
   $('#apply-import').onclick=()=>{if(!pendingImport)return;const previous=state,wasBlocked=storageBlocked;try{const raw=localStorage.getItem(KEY);if(raw)localStorage.setItem(KEY+'-recovery',raw);state=pendingImport;storageBlocked=false;if(!persist({record:false,cloud:false}))throw Error('저장 공간이 부족합니다.');pendingImport=null;$('#import-preview').close();startRefreshTimer();toast('백업 데이터를 적용했습니다.')}catch(e){state=previous;storageBlocked=wasBlocked;render();alert('적용 실패: '+e.message)}};
-  $('#raw-backup').onclick=()=>{const raw=localStorage.getItem(KEY);if(!raw){toast('저장 원본이 없습니다.');return}const url=URL.createObjectURL(new Blob([raw],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='my-asset-hub-recovery-raw.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+  $('#raw-backup').onclick=()=>{const raw=localStorage.getItem(KEY)||localStorage.getItem(LEGACY_KEY);if(!raw){toast('저장 원본이 없습니다.');return}const url=URL.createObjectURL(new Blob([raw],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='my-asset-hub-recovery-raw.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
   let installPrompt=null;
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#install-app').hidden=false});
   $('#install-app').onclick=async()=>{if(!installPrompt)return;await installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#install-app').hidden=true};
@@ -364,22 +386,11 @@
   $('#update-app').hidden=true;
 
   // v0.6.0 recovery: remove legacy service workers/caches that could break navigation.
-  // PWA installation continues via the web app manifest; offline caching is temporarily disabled for stability.
-  if('serviceWorker'in navigator&&location.protocol!=='file:'){
-    window.addEventListener('load',async()=>{
-      try{
-        const regs=await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(r=>r.unregister()));
-        if('caches'in window){
-          const keys=await caches.keys();
-          await Promise.all(keys.filter(k=>k.startsWith('my-asset-hub-')).map(k=>caches.delete(k)));
-        }
-      }catch(e){console.warn('legacy PWA cleanup failed',e)}
-    });
-  }
+  // Test beta keeps main's network-only PWA behavior; no origin-wide service-worker deletion.
   window.addEventListener('resize',()=>{if(tab==='dashboard')renderHistory()});window.addEventListener('online',()=>{renderMarketStatus();refreshMarket(false)});window.addEventListener('offline',renderMarketStatus);
   window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=normalize(JSON.parse(e.newValue));render()}catch{toast('다른 탭의 데이터를 확인하세요.')}}});
   // Testable existing calculations. No personal data leaves the device through this interface.
-  window.AssetHub={version:APP_VERSION,normalize,calc,workbookRows,readWorkbook,getState:()=>structuredClone(state)};
-  if(storageBlocked)render();else persist();startRefreshTimer();checkBuildStatus();if(navigator.onLine)setTimeout(()=>refreshMarket(false),800);
+  window.AssetHub={version:APP_VERSION,storageKey:KEY,normalize,calc,workbookRows,readWorkbook,applyEditorMarketSelection,getState:()=>structuredClone(state)};
+  $('#contribution').value=state.config.monthlyInvestment;if(storageBlocked)render();else persist();startRefreshTimer();checkBuildStatus();if(navigator.onLine)setTimeout(()=>refreshMarket(false),800);
 })();
+

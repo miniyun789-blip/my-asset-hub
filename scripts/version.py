@@ -10,4 +10,10 @@ for f in ['package.json','public/manifest.webmanifest']:
  p=root/f;d=json.loads(p.read_text());d['version']=v;p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n')
 if (root/'package-lock.json').exists():
  p=root/'package-lock.json';d=json.loads(p.read_text());d['version']=v;d['packages']['']['version']=v;p.write_text(json.dumps(d,indent=2)+'\n')
+if len(sys.argv)>2:
+ build=sys.argv[2]
+ if not re.fullmatch(r'[A-Za-z0-9.-]+',build):raise ValueError('invalid build')
+ for file,key in [('public/js/app.js','BUILD_ID'),('worker.js','BUILD')]:
+  p=root/file;s=p.read_text();s=re.sub(r"const "+key+r"='[^']+'",f"const {key}='{build}'",s);p.write_text(s)
+ print('build',build)
 print(v)
