@@ -1,6 +1,6 @@
 {
   "name": "my-asset-hub",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,5 +17,5 @@
     "undici": "^8.11.2",
     "wrangler": "^4.0.0"
   },
-  "build": "20260928-prod-01"
+  "build": "20260928-prod-02"
 }
