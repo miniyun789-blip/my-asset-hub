@@ -1,4 +1,18 @@
-# My Asset Hub v0.8.0-beta.2 독립 검증
+# My Asset Hub 검증 기록
+
+## v0.8.1 UX 보완 검토 · build 20260928-prod-02
+
+이번 변경은 v0.8.0의 계산/체결 엔진을 유지하고 UI와 목표비중 자동 재배분 흐름을 보완한 사용자 테스트 빌드다.
+
+- 현금·은행 자산: 단일 목록 구조로 변경, 기존 risk/liquidity 데이터는 그대로 유지.
+- 월 투자: 목표 포트폴리오 완성 여부를 선검증하고 유동자산/최소현금/실사용 가능금액을 먼저 표시. 결과는 실제 매수 종목만 우선 표시.
+- 전체 리밸런싱: 수량 유지 시 같은 그룹의 나머지 목표를 기존 비율로 자동 재배분. 고정자산 목표 입력 제거.
+- app/portfolio/cashflow/service-worker 및 변경된 테스트 파일 JavaScript syntax 검증 PASS.
+- package/app/Worker/manifest/footer/service-worker version/build = `0.8.1 / 20260928-prod-02` 일치 확인.
+
+v0.8.0-beta.2의 93개 자동/브라우저/실시세 검증 결과는 아래에 보존한다. v0.8.1 변경분의 실제 Android/iPhone 손가락 조작과 배포 후 Worker/PWA 동시 일치는 사용자 테스트에서 최종 확인한다.
+
+## v0.8.0-beta.2 독립 검증
 
 Build: `20260928-beta-02`
 
