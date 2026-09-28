@@ -1,6 +1,6 @@
-// My Asset Hub v0.8.0 — public market data only. No holdings, quantities or personal files.
-const VERSION='0.8.0';
-const BUILD='20260928-prod-01';
+// My Asset Hub v0.8.1 — public market data only. No holdings, quantities or personal files.
+const VERSION='0.8.1';
+const BUILD='20260928-prod-02';
 const JSONH={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
 const out=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:JSONH});
 let master=null,masterAt=0;const quotes=new Map();
