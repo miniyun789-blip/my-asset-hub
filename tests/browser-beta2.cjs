@@ -11,7 +11,7 @@ const fixture={version:4,config:{riskGroups:groups,risks:groups.map(g=>g.id),cas
  browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE||chromium.executablePath(),args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-zygote','--single-process','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-software-rasterizer']});
  const page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true,isMobile:true,serviceWorkers:'block'}),cdp=await page.context().newCDPSession(page),errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
- await page.route('**/api/**',r=>r.fulfill({contentType:'application/json',body:JSON.stringify({version:require('../package.json').version,build:'20260928-prod-01'})}));
+ await page.route('**/api/**',r=>r.fulfill({contentType:'application/json',body:JSON.stringify({version:require('../package.json').version,build:'20260928-prod-02'})}));
  await page.addInitScript(f=>{Object.defineProperty(navigator,'onLine',{get:()=>false});if(!sessionStorage.getItem('seeded')){localStorage.setItem('my-asset-hub-beta-v4',JSON.stringify(f));sessionStorage.setItem('seeded','1')}},fixture);
  await page.goto('http://127.0.0.1:'+server.address().port+'/');await page.waitForFunction(()=>window.AssetHub);
  const state=()=>page.evaluate(()=>AssetHub.getState());
