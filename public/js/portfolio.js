@@ -84,5 +84,53 @@ function execute(s,p,fills){
  if(actual.some(x=>x.side==='buy')&&cash<p.minCash-.01)throw Error('최소 현금 유지 조건을 충족하지 못합니다.');
  const funded=applyLiquidDelta(n,Math.max(0,cash)-liquidTotal(s));n.cash=funded.state.cash;n.savings=funded.state.savings;const after=calc(n).total;const event={id:p.id,type:p.mode==='investment'?'monthly_investment':'rebalance',method:p.method,at:new Date().toISOString(),contribution:p.contribution,actualInvestment:bought,beforeTotal:p.beforeTotal,afterTotal:after,cashAfter:n.cash.amount,liquidAfter:liquidTotal(n),funding:funded.movements,trades:actual.map(x=>({id:x.id,name:x.name,ticker:x.ticker,side:x.side,quantity:x.quantity,price:x.price,currency:x.foreign?'USD':'KRW',fx:x.foreign?p.fx:1,fee:x.fee,amount:x.amount}))};n.transactions.push(event);if(p.contribution&&!p.fromCash)n.cashflows.push({id:p.id,at:event.at,amount:p.contribution,type:'contribution'});return n;
 }
-root.Portfolio={labels,migrate,calc,items,validateTargets,distribute,renameRisks,plan,execute,fingerprint,liquidSources,liquidTotal};
+// Risk-only recommendation layer; legacy planner and shared actual-fill engine remain available.
+function riskPlan(s,opt={}){
+ if(!validateTargets(s).step1)throw Error('리스크 목표 합계를 100%로 맞춰 주세요.');
+ const mode=opt.mode==='investment'?'investment':'rebalance',c=calc(s),total=c.total;
+ if(!(total>0))throw Error('자산을 먼저 등록하세요.');
+ const reserve=s.config.minCashMode==='percent'?total*s.config.minCash/100:s.config.minCash;
+ const contribution=mode==='investment'?number(opt.contribution,'이번 투자금'):0;
+ const locked=new Set(opt.lockedIds||[]),excluded=new Set(opt.excluded||[]),skipped=new Set(opt.skipped||[]),preferred=opt.preferred||{};
+ const rows=c.stocks.map(x=>{if(!(x.price>0)||x.quoteError)throw Error(x.name+': 시세를 갱신하세요.');if(!cryptoAsset(x)&&!Number.isInteger(x.quantity))throw Error(x.name+': 주식 수량을 확인하세요.');return {...x,unit:x.price*(x.foreign?s.config.fx:1),qty:x.quantity,crypto:cryptoAsset(x),ret:x.cost>0?(x.value-x.cost)/x.cost:Infinity}});
+ let projected=copy(s),spent=0;const warnings=[];
+ const groupValues=()=>Object.fromEntries(s.config.risks.map(r=>[r,items(projected).filter(x=>x.risk===r).reduce((a,x)=>a+x.value,0)]));
+ const target=r=>total*(s.riskTargets[r]||0)/100;
+ const lot=(x,value)=>x.crypto?Math.floor(Math.max(0,value/x.unit)*1e8)/1e8:Math.floor(Math.max(0,value/x.unit));
+ const adjust=(x,qty)=>{x.qty=Number((x.qty+qty).toFixed(8));projected.stocks.find(y=>y.id===x.id).quantity=x.qty;projected=applyLiquidDelta(projected,-qty*x.unit).state;};
+ if(mode==='rebalance')for(const r of s.config.risks){let excess=Math.max(0,groupValues()[r]-target(r));for(const x of rows.filter(x=>x.risk===r&&!locked.has(x.id)).sort((a,b)=>b.ret-a.ret||a.id.localeCompare(b.id))){
+   // Selling into cash of the same group cannot correct that group's allocation.
+   if(r===s.config.cashRiskId)break;
+   const qty=Math.min(x.qty,lot(x,excess));if(qty>0){adjust(x,-qty);excess-=qty*x.unit;}
+ }}
+ // Safe-group securities may be sold to finance underweight OTHER groups; fixed banks never sell.
+ if(mode==='rebalance'){
+  const values=groupValues(),safe=s.config.cashRiskId;
+  const needed=s.config.risks.filter(r=>r!==safe&&rows.some(x=>x.risk===r&&!locked.has(x.id))).reduce((a,r)=>a+Math.max(0,target(r)-values[r]),0);
+  let toRaise=Math.min(Math.max(0,values[safe]-target(safe)),Math.max(0,needed-Math.max(0,liquidTotal(projected)-reserve)));
+  for(const x of rows.filter(x=>x.risk===safe&&!locked.has(x.id)).sort((a,b)=>b.ret-a.ret||a.id.localeCompare(b.id))){const qty=Math.min(x.qty,lot(x,toRaise));if(qty>0){adjust(x,-qty);toRaise-=qty*x.unit;}}
+ }
+ const initial=groupValues(),deficits=s.config.risks.map(r=>({r,amount:Math.max(0,target(r)-initial[r])}));
+ const eligible=g=>!skipped.has(g.r)&&rows.some(x=>x.risk===g.r&&!excluded.has(x.id)&&!locked.has(x.id));
+ for(const g of deficits)if(g.amount>.01&&!eligible(g))warnings.push((s.config.riskGroups.find(x=>x.id===g.r)?.label||g.r)+(skipped.has(g.r)?': 이번 투자에서 건너뛰었습니다.':': 부족하지만 매수 가능한 보유 종목이 없습니다.')+' 해당 금액은 현금으로 유지합니다.');
+ const sum=deficits.filter(g=>rows.some(x=>x.risk===g.r&&!locked.has(x.id)&&!excluded.has(x.id))).reduce((a,g)=>a+g.amount,0),budget=Math.min(mode==='investment'?contribution:Infinity,Math.max(0,liquidTotal(projected)-reserve));
+ for(const g of deficits.filter(eligible).sort((a,b)=>b.amount-a.amount||a.r.localeCompare(b.r))){
+  let groupBudget=Math.min(g.amount,sum?budget*g.amount/sum:0);
+  const candidates=rows.filter(x=>x.risk===g.r&&!excluded.has(x.id)&&!locked.has(x.id)).sort((a,b)=>(a.id===preferred[g.r]?-1:b.id===preferred[g.r]?1:0)||a.ret-b.ret||a.id.localeCompare(b.id));
+  for(const x of candidates){const amount=Math.min(groupBudget,Math.max(0,liquidTotal(projected)-reserve),budget-spent);let qty=lot(x,amount);if(qty<=0)continue;
+   // Check the actual deterministic funding sources, so a same-risk transfer is not called risk correction.
+   const trial=copy(projected);trial.stocks.find(y=>y.id===x.id).quantity+=qty;const funded=applyLiquidDelta(trial,-qty*x.unit).state;
+   const before=groupValues(),after=Object.fromEntries(s.config.risks.map(r=>[r,items(funded).filter(y=>y.risk===r).reduce((a,y)=>a+y.value,0)]));
+   const error=v=>s.config.risks.reduce((a,r)=>a+(v[r]-target(r))**2,0);
+   if(error(after)>=error(before)-.0001)continue;
+   adjust(x,qty);spent+=qty*x.unit;groupBudget-=qty*x.unit;
+  }
+ }
+ const after=groupValues();for(const r of s.config.risks){const immovable=c.banks.filter(x=>x.fixed&&x.risk===r).reduce((a,x)=>a+x.value,0)+rows.filter(x=>locked.has(x.id)&&x.risk===r).reduce((a,x)=>a+x.value,0);if(immovable>target(r)+.01)warnings.push((s.config.riskGroups.find(g=>g.id===r)?.label||r)+': 고정/수량 유지 자산 때문에 목표 달성 불가. 최소 가능 비중 '+(immovable/total*100).toFixed(1)+'%.');}
+ if(sum===0)warnings.push('목표 대비 부족한 그룹에 매수 가능한 종목이 없습니다. 투자금은 현금으로 유지합니다.');
+ const trades=rows.map(x=>({id:x.id,name:x.name,ticker:x.ticker,foreign:x.foreign,crypto:x.crypto,risk:x.risk,current:x.quantity,target:x.qty,delta:Number((x.qty-x.quantity).toFixed(8)),price:x.price,unit:x.unit,amount:Math.abs(x.qty-x.quantity)*x.unit,currentPct:x.value/total*100,targetPct:x.qty*x.unit/total*100,afterPct:x.qty*x.unit/total*100,returnPct:Number.isFinite(x.ret)?x.ret*100:null}));
+ return {id:id(),mode,method:'risk-return',contribution,fromCash:true,minCash:reserve,fx:s.config.fx,at:new Date().toISOString(),fingerprint:fingerprint(s),beforeTotal:total,total,cashBefore:liquidTotal(s),cashAfter:liquidTotal(projected),trades,afterGroups:s.config.risks.map(r=>({id:r,before:items(s).filter(x=>x.risk===r).reduce((a,x)=>a+x.value,0)/total*100,after:after[r]/total*100,target:s.riskTargets[r]||0})),warnings,unused:mode==='investment'?Math.max(0,contribution-spent):0};
+}
+
+root.Portfolio={riskPlan,labels,migrate,calc,items,validateTargets,distribute,renameRisks,plan,execute,fingerprint,liquidSources,liquidTotal};
 })(globalThis);

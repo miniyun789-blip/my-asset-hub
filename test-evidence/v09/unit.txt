@@ -1,0 +1,103 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> my-asset-hub@0.9.0 test
+> node --test tests/worker.test.mjs && node tests/v07.cjs && node tests/v08.cjs && node tests/beta2.cjs && node tests/v09.cjs
+
+✔ 국내 이름 (28.429248ms)
+✔ 국내 코드 (2.478158ms)
+✔ KOSDAQ (0.998747ms)
+✔ 미국 종목 (1.674335ms)
+✔ 미국 티커 (2.514643ms)
+✔ NYSE (1.280172ms)
+✔ 국내 ETF (0.956664ms)
+✔ 미국 ETF (1.534234ms)
+✔ Upbit KRW (1.172558ms)
+✔ All listed-market pagination (2.676577ms)
+✔ NASDAQ/ARCA exchange classification (0.227383ms)
+✔ Quote validates foreign currency and positive price (1.812915ms)
+✔ Invalid quote is an error, never 0 (0.36481ms)
+✔ CORS permits configured GitHub origin only (1.422926ms)
+✔ Unknown API does not return HTML app (0.272711ms)
+✔ AMEX catalogue search returns USD instruments (0.47081ms)
+✔ health, app, manifest, package, footer and service worker version/build match (1.587665ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 152.117651
+PASS A: 90% locks plan
+PASS B: 100% unlocks
+PASS C: 30% split 15/15
+PASS D: 30% split 10/10/10
+PASS E: edited allocation retained by missing-only initialization
+PASS F: 13.6 rounds to 14 with adequate cash
+PASS G: rounded budget overflow adjusted
+PASS H: crypto fractional quantity
+PASS I/J: cash remainder and holdings after rebalance
+PASS L: monthly 2m buy only
+PASS M: min cash 300k caps 2m investment at 1.7m
+PASS N/O/P: partial fill 5->3, KRW weighted basis, history/contribution
+PASS Q: cash label rename preserves IDs and math
+PASS risk deletion moves stocks and targets
+PASS T: legacy storage copied, original and migration backup intact
+PASS corrupt and future schema never overwrite raw
+PASS fixed bank untouched and impossible warning
+PASS regular mode shares targets, exclusion, cash reserve percent
+PASS overspend actual price, stale plan, oversell rejected
+PASS sell then buy, sell basis retained, fee deducted
+PASS foreign cost stays KRW when FX changes
+PASS legacy Excel without v3 sheets keeps existing cash and histories
+PASS sell fee cannot cause negative cash
+PASS save failure rolls back actual portfolio and protects persisted state
+PASS K/J: confirmation cancellation, actual apply, snapshot undo
+PASS DOM actual stage disabled state
+PASS Excel full new schema binary roundtrip
+PASS R: Samsung auto fields/price
+PASS S: AAPL auto fields/price
+29 v0.7 tests PASS
+PASS v0.7 savings migration retains old valuation and original key
+PASS money formatter caret and internal value
+PASS liquidity defaults and explicit override
+PASS salary one per KST month, external asset increase
+PASS savings transfer preserves total, and pending on insufficient cash
+PASS popup and undo of applied salary
+PASS no popup without changes
+PASS monthly investment uses existing cash, no sells/overspend, integer stock and fractional crypto
+PASS fixed amount unchanged, dynamic weight, infeasible warning
+PASS locked stock quantity remains after planning
+PASS action plan details collapsed by default
+PASS salary invalid destination does not change saved state
+12 v0.8 tests PASS
+PASS investment: fixed 3m excluded, liquid 5m included, reserve 2m, total conserved
+PASS rebalance: fixed 3m excluded, liquid 5m included, reserve 2m, total conserved
+PASS partial fills and fee debit cash first, then bank displayOrder with stable tie break
+PASS actual fee cannot invade aggregate reserve; state unchanged on rejected fill
+PASS monthly overweights never sell, excluded asset never buys, stock integer/coin fractional
+PASS locked QQQ 5 shares unchanged after full execution with liquid bank funding
+PASS bank funding execution undo restores every balance and transaction
+PASS full STEP 3 contains no legacy monthly controls
+PASS fixed asset percentage changes with external salary while balance remains constant
+PASS Excel imported into fresh app preserves custom risk IDs, ordering and target edits
+PASS v0.7 Excel installment value migration preserves balance
+PASS fractional KRW weighted average editor rounds display without multiplying or losing basis
+PASS Worker name matches release channel
+13 beta.2 independent tests PASS
+PASS risk goals only; deficits first; lowest return in same group first
+PASS loss in overweight group does not trigger purchase
+PASS fixed 3m excluded, liquid 5m included, min2m: no more than 3m
+PASS skip holds group budget as cash; alternative holding overrides priority
+PASS integer equities, fractional crypto, deterministic result and budget
+PASS full rebalance sells overweight, buys underweight, maintains quantity locks
+PASS same-risk cash to bond does not falsely correct risk shortage
+PASS safe cash stable under rename, risk totals include all banks and cash
+PASS monthly UI requires only risk goals; recommendation skip and alternative work
+PASS auto undo then reload does not reapply or show popup again
+PASS new planner partial fills, fee, undo and duplicate rejection use common engine
+PASS invalid targets fail even without per-asset goals
+PASS 100 varied portfolios: conservation, nonnegative cash, locks, budget, forecast consistency
+PASS v09 first load preserves raw state before safe-classification update
+PASS safe-group securities can fund underweight groups without touching fixed banks
+15 v0.9 tests PASS

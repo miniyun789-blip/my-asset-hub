@@ -1,0 +1,1 @@
+Chromium manual QA 2026-11-06 KST: real UI input/goal save, fixture search/quote, monthly plan, partial fill 3 shares with 100 KRW fee, total 2,099,900 / cash 1,699,900, reload persistence. Mobile viewport / automated browser suite / physical installation NOT TESTED.
